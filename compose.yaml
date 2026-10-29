@@ -1,0 +1,43 @@
+services:
+  gateway:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      BIND: 0.0.0.0:8080
+      DATABASE_PATH: /app/data/go-router.db
+      MODEL_CATALOG_PATH: /app/config/models.json
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - gateway-data:/app/data
+      - ./config/models.json:/app/config/models.json:ro
+    stop_grace_period: 30s
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:size=8m,mode=1777
+  caddy:
+    image: caddy:2-alpine
+    profiles: [https]
+    restart: unless-stopped
+    environment:
+      DOMAIN: ${DOMAIN:?Set DOMAIN in .env for the HTTPS deployment}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      gateway:
+        condition: service_healthy
+volumes:
+  gateway-data:
+  caddy-data:
+  caddy-config:

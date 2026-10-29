@@ -1,0 +1,6 @@
+{
+  "model": "gpt-6-luna",
+  "input": [{"role":"user","content":[{"type":"input_text","text":"Write a small Rust add function."}]}],
+  "max_output_tokens": 1000,
+  "stream": true
+}

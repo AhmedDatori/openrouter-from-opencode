@@ -1,0 +1,13 @@
+{
+  "model": "claude-haiku-5-5",
+  "messages": [{"role":"user","content":"Look up invoice PI-123."}],
+  "tools": [{
+    "type":"function",
+    "function": {
+      "name":"lookup_invoice",
+      "description":"Find an invoice in the application's database.",
+      "parameters":{"type":"object","properties":{"id":{"type":"string"}},"required":["id"],"additionalProperties":false}
+    }
+  }],
+  "tool_choice":"auto"
+}

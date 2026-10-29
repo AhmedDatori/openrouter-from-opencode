@@ -1,0 +1,38 @@
+name: Release binary
+on:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: write
+jobs:
+  linux:
+    strategy:
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: x86_64
+          - runner: ubuntu-24.04-arm
+            arch: aarch64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the Debian 12 compatible release image
+        run: docker build -t go-router:release .
+      - name: Extract release binary
+        run: |
+          id=$(docker create go-router:release)
+          mkdir -p target/release
+          docker cp "$id:/app/go-router" target/release/go-router
+          docker rm "$id"
+      - name: Package
+        run: |
+          mkdir go-router
+          cp target/release/go-router go-router/
+          cp -r config deploy scripts docs examples README.md LICENSE .env.example go-router/
+          tar czf go-router-linux-${{ matrix.arch }}.tar.gz go-router
+          sha256sum go-router-linux-${{ matrix.arch }}.tar.gz > go-router-linux-${{ matrix.arch }}.tar.gz.sha256
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            go-router-linux-*.tar.gz
+            go-router-linux-*.sha256
