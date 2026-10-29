@@ -80,7 +80,25 @@ docker compose exec gateway /app/go-router --healthcheck
 ## Run a binary or build from source
 
 A release package contains the binary, catalog, and documentation. It needs no Rust
-compiler. For source builds, install Rust **1.88+** and a C compiler for bundled SQLite:
+compiler. For Linux x86_64 with glibc 2.34+ (for example Debian 12 or Ubuntu 22.04+):
+
+```bash
+gh release download v0.1.0 --repo AhmedDatori/go-router \
+  --pattern 'go-router-linux-x86_64.tar.gz' \
+  --pattern 'go-router-linux-x86_64.tar.gz.sha256'
+sha256sum -c go-router-linux-x86_64.tar.gz.sha256
+tar xzf go-router-linux-x86_64.tar.gz
+cd go-router
+python3 scripts/setup.py
+./go-router --check
+./go-router
+```
+
+GitHub authentication is required for private release downloads. You can also download
+the archive in your authenticated browser and copy it to the server. ARM64 can build
+the Dockerfile/source natively; the release workflow includes an ARM64 build job.
+
+For source builds, install Rust **1.88+** and a C compiler for bundled SQLite:
 
 ```bash
 # Debian/Ubuntu, for building only:

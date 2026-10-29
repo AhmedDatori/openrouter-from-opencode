@@ -129,3 +129,13 @@ python3 tests/benchmark.py --docker-image go-router:test
 
 Actual network/model latency dominates typical inference calls. The gateway does no
 local model inference, transcription, OCR, tokenization, or GPU work.
+
+## GitHub hosted runners
+
+The initial private-repository CI run could not start either job. GitHub reported:
+“Recent account payments have failed or your spending limit needs to be increased.”
+This is an account runner restriction, not a test result. Local unit/integration/
+contract/browser checks and the Docker build were completed separately.
+The supplied Linux x86_64 binary was built locally from the Dockerfile and passed
+the HTTP integration and published-schema checks. Deployment does not depend on
+Actions. After resolving GitHub account billing/limits, rerun the CI workflow.

@@ -50,6 +50,8 @@ causes an intentional admin origin failure. On local HTTP, keep `COOKIE_SECURE=f
 
 On Debian/Ubuntu, create a dedicated service account and install a compatible binary.
 Use a release built on a compatible distribution, or build from source on that host.
+With the prebuilt archive, replace `target/release/go-router` in the copy command
+below with `go-router`.
 
 ```bash
 sudo useradd --system --home /opt/go-router --shell /usr/sbin/nologin go-router
