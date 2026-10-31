@@ -38,6 +38,28 @@ TLS verification. There is no need to install a private CA or disable verificati
 
 Reference: [Let's Encrypt public IP certificates](https://letsencrypt.org/2026/01/15/6day-and-ip-general-availability).
 
+### Port 80 already in use
+
+If another application or the Windows System/HTTP.sys listener owns port 80,
+and port 443 is available, add `-HttpsOnly`:
+
+```powershell
+Set-Location C:\go-router
+git pull --ff-only
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\publish-windows.ps1 -Address 168.119.149.240 -HttpsOnly
+```
+
+This mode checks/opens only TCP 443, disables Caddy's HTTP redirects and HTTP ACME
+challenge, and validates certificates using TLS-ALPN on TCP 443. It does not stop
+or reconfigure the existing port-80 listener. Use `https://` explicitly in clients.
+Incoming TCP 443 must reach Caddy directly, including TLS-ALPN traffic, through
+the hosting provider's firewall/NAT. It must also remain reachable for renewals.
+This option works with both a public IP and a DNS hostname. It is an installation
+option; an existing GoRouterCaddy service should be reconfigured rather than reinstalled.
+
+See [Caddy ACME challenge options](https://caddyserver.com/docs/caddyfile/directives/tls#issuers)
+and [automatic HTTPS modes](https://caddyserver.com/docs/caddyfile/options#auto-https).
+
 ## Install from the Windows desktop
 
 ### Clone and install without GitHub sign-in

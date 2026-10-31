@@ -1,5 +1,8 @@
 #Requires -RunAsAdministrator
-param([Parameter(Mandatory=$true)][Alias('Address')][string]$Domain)
+param(
+    [Parameter(Mandatory=$true)][Alias('Address')][string]$Domain,
+    [switch]$HttpsOnly
+)
 $ErrorActionPreference = 'Stop'
 $Domain = $Domain.Trim().ToLowerInvariant()
 $ipAddress = $null
@@ -22,8 +25,10 @@ $config = Join-Path $caddyRoot 'Caddyfile'
 if (Get-Service -Name GoRouterCaddy -ErrorAction SilentlyContinue) {
     throw 'GoRouterCaddy already exists. Update its configuration and restart it instead of reinstalling.'
 }
-foreach ($port in @(80,443)) {
+$ports = if ($HttpsOnly) { @(443) } else { @(80,443) }
+foreach ($port in $ports) {
     if (Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction SilentlyContinue) {
+        if ($port -eq 80) { throw 'Port 80 is already in use. Retry with -HttpsOnly to use port 443 and TLS-ALPN certificate validation without touching port 80.' }
         throw "Port $port is already in use. Check the existing web server before proceeding."
     }
 }
@@ -39,16 +44,27 @@ $utf8 = New-Object Text.UTF8Encoding($false)
 $storage = (Join-Path $root 'data/caddy').Replace('\','/')
 $sniConfig = ''
 $tlsConfig = ''
+$httpsConfig = ''
+$profileConfig = ''
+$challengeConfig = ''
 if ($isIp) {
     # Most TLS clients omit SNI for an IP URL. Select the public address explicitly.
     $sniConfig = "default_sni $Domain"
+    $profileConfig = 'profile shortlived'
+}
+if ($HttpsOnly) {
+    $httpsConfig = 'auto_https disable_redirects'
+    $challengeConfig = 'disable_http_challenge'
+}
+if ($isIp -or $HttpsOnly) {
     # Override Caddy's default local issuer for IP addresses. Public IP certificates
     # require Let's Encrypt's shortlived profile and renew automatically.
     $tlsConfig = @"
     tls {
         issuer acme {
             dir https://acme-v02.api.letsencrypt.org/directory
-            profile shortlived
+            $profileConfig
+            $challengeConfig
         }
     }
 "@
@@ -57,6 +73,7 @@ $caddyfile = @"
 {
     admin off
     $sniConfig
+    $httpsConfig
     storage file_system {
         root "$storage/storage"
     }
@@ -109,7 +126,7 @@ if (Get-ScheduledTask -TaskName GoRouter -ErrorAction SilentlyContinue) {
     & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'install-windows-task.ps1')
     if ($LASTEXITCODE -ne 0) { throw 'Gateway startup-task installation failed.' }
 }
-foreach ($port in @(80,443)) {
+foreach ($port in $ports) {
     $name = "GoRouter-HTTPS-TCP-$port"
     if (!(Get-NetFirewallRule -Name $name -ErrorAction SilentlyContinue)) {
         New-NetFirewallRule -Name $name -DisplayName "Go Router HTTPS TCP $port" -Direction Inbound -Action Allow -Protocol TCP -LocalPort $port -Program $caddy | Out-Null
@@ -126,6 +143,7 @@ if ($isIp) {
 } else {
     Write-Host "DNS A record: $Domain -> your server's public IP."
 }
-Write-Host 'The provider firewall/NAT must allow incoming TCP 80 and 443 to reach this Windows server.'
+Write-Host "The provider firewall/NAT must allow incoming TCP $($ports -join ', ') to reach this Windows server."
+if ($HttpsOnly) { Write-Host 'HTTPS-only mode: port 80 is unchanged. Use https:// explicitly. Certificate validation uses TLS-ALPN on port 443.' }
 Write-Host "Admin: https://$Domain/admin ; API base URL: https://$Domain/api/v1"
 Write-Host "Certificates renew automatically. If issuance fails, check data\caddy\process.log."
