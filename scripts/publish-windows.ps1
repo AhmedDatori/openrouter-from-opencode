@@ -35,8 +35,30 @@ foreach ($port in $ports) {
 New-Item -ItemType Directory -Path $caddyRoot -Force | Out-Null
 if (!(Test-Path -LiteralPath $caddy)) {
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-    Invoke-WebRequest -UseBasicParsing 'https://caddyserver.com/api/download?os=windows&arch=amd64' -OutFile ($caddy + '.download')
-    Move-Item -LiteralPath ($caddy + '.download') -Destination $caddy
+    # Pin the standard official release. The custom-build download endpoint may
+    # close connections from older Windows/.NET clients before returning a binary.
+    $version = '2.11.7'
+    $archive = Join-Path $caddyRoot "caddy_$($version)_windows_amd64.zip"
+    $url = "https://github.com/caddyserver/caddy/releases/download/v$version/caddy_$($version)_windows_amd64.zip"
+    # SHA512 from the official caddy_2.11.7_checksums.txt release asset.
+    $expectedHash = 'c308154504e53755958ffc62d8a2657ab17eefd6dd25c45dbb2c3d93d29519971f77ca652f7d0f2bcb7f980b9ba3822478865e29969d0272d7613550a43152b1'
+    for ($attempt = 1; $attempt -le 3; $attempt++) {
+        try {
+            Invoke-WebRequest -UseBasicParsing -TimeoutSec 180 -UserAgent 'go-router-setup/0.1.0' $url -OutFile ($archive + '.download')
+            $actualHash = (Get-FileHash -LiteralPath ($archive + '.download') -Algorithm SHA512).Hash.ToLowerInvariant()
+            if ($actualHash -ne $expectedHash) { throw 'Caddy download checksum mismatch.' }
+            Move-Item -LiteralPath ($archive + '.download') -Destination $archive -Force
+            break
+        } catch {
+            if ($attempt -eq 3) { throw }
+            Write-Warning "Caddy download attempt $attempt failed; retrying from the official GitHub release."
+            Start-Sleep -Seconds (2 * $attempt)
+        }
+    }
+    $unpacked = Join-Path $caddyRoot 'unpacked'
+    Expand-Archive -LiteralPath $archive -DestinationPath $unpacked -Force
+    Copy-Item -LiteralPath (Join-Path $unpacked 'caddy.exe') -Destination $caddy
+    Copy-Item -LiteralPath (Join-Path $unpacked 'LICENSE') -Destination (Join-Path $caddyRoot 'LICENSE.caddy')
 }
 & $caddy version
 if ($LASTEXITCODE -ne 0) { throw 'The downloaded Caddy executable could not run.' }

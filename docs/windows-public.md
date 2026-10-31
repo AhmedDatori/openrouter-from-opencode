@@ -118,10 +118,17 @@ create application keys. Provider-level TCP 80/443 access is still required.
    If `C:\go-router` already exists, update only the tracked scripts from the new
    archive, or copy `scripts\publish-windows.ps1` into its scripts folder. Do not
    overwrite `.env` or `data`; stop the gateway before replacing its executable.
-3. Setup downloads Caddy from its official HTTPS download endpoint, validates its
+3. Setup downloads Caddy 2.11.7 from its official GitHub release, verifies the
+   pinned SHA512 checksum, retries transient download failures up to three times,
+   validates its
    configuration, sets `PUBLIC_URL=https://your-domain`, sets secure cookies,
    and installs the `GoRouterCaddy` Windows service. The gateway is started as the
    `GoRouter` startup task. Both start automatically and survive RDP disconnection.
+
+   If an older installer fails downloading from `caddyserver.com/api/download`,
+   run `git pull --ff-only` and retry the publishing command. The current installer
+   uses the standard official GitHub release ZIP instead. It does not disable TLS
+   certificate verification. A pre-existing `caddy\caddy.exe` is reused.
 4. Read the dashboard login details on the server:
 
    ```powershell
