@@ -9,13 +9,34 @@ The gateway uses OpenCode Go remotely; it does not run an AI model locally.
 
 - Windows Server 2019 or later, x64, with administrator access.
 - A Go subscription and upstream API key.
-- A public DNS hostname, for example `api.example.com`.
-- A DNS A record pointing that hostname at your server's public IPv4 address.
+- A public DNS hostname, for example `api.example.com`, **or a public IPv4 address**.
+- For a hostname, a DNS A record pointing it at your server's public IPv4 address.
   Remove an incorrect AAAA record if the hostname has one. For the first test,
   use direct/DNS-only mode if your DNS provider offers a proxy option.
 - Inbound TCP 80 and 443 allowed by the hosting provider's firewall. The setup
   script adds Windows firewall rules for those ports. Port 8080 remains private.
 - Ports 80 and 443 not already occupied by another server, such as IIS.
+
+### Without a domain: use the public server IP
+
+No DNS purchase or configuration is needed. With the current Windows package,
+replace the publishing command below with:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\publish-windows.ps1 -Address 168.119.149.240
+```
+
+Replace the example IP with your own server's IP. The resulting URLs are
+`https://168.119.149.240/admin` and `https://168.119.149.240/api/v1`.
+The helper explicitly selects Let's Encrypt's production ACME endpoint and
+`shortlived` profile, rather than Caddy's default locally trusted IP certificate.
+It also sets `default_sni` for clients that omit SNI when using an IP URL.
+Public IP certificates are valid for 160 hours; Caddy handles automatic renewal.
+The IP must remain assigned to this server, and incoming TCP 80/443 must reach it
+through both provider-level firewalls/NAT and Windows Firewall. Clients use normal
+TLS verification. There is no need to install a private CA or disable verification.
+
+Reference: [Let's Encrypt public IP certificates](https://letsencrypt.org/2026/01/15/6day-and-ip-general-availability).
 
 ## Install from the Windows desktop
 
