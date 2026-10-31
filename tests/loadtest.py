@@ -109,6 +109,10 @@ class Admin:
         if status != 200:
             raise SystemExit(f"This gateway has no monitor endpoint ({status}); update to v0.3.0 or newer. {value}")
 
+    def totals(self):
+        status, _, value = self.client.json("GET", "/admin/api/stats", None, self.headers)
+        return value["totals"] if status == 200 else None
+
     def metrics(self):
         status, _, value = self.client.json("GET", "/admin/api/metrics?since=" + str(int(time.time() * 1000)), None, self.headers)
         return value if status == 200 else None
@@ -226,6 +230,11 @@ def summarize(results, seconds):
     ttft = [r["ttft_ms"] for r in ok if r["ttft_ms"] is not None]
     tokens_in = sum((r["usage"] or {}).get("prompt_tokens", 0) for r in ok)
     tokens_out = sum((r["usage"] or {}).get("completion_tokens", 0) for r in ok)
+    usage = [r["usage"] or {} for r in results]
+    cash = sum(u.get("cost") or 0 for u in usage)
+    allowance = sum((u.get("opencode") or {}).get("allowance") or 0 for u in usage)
+    listed = sum((u.get("opencode") or {}).get("list_cost") or 0 for u in usage)
+    per_chat = lambda v: round(v / len(ok), 6) if ok else None
     return {
         "requests": len(results),
         "succeeded": len(ok),
@@ -234,6 +243,15 @@ def summarize(results, seconds):
         "response_ms": {"p50": pct(total, 50), "p95": pct(total, 95), "p99": pct(total, 99), "max": round(max(total)) if total else None, "mean": round(statistics.mean(total)) if total else None},
         "first_token_ms": {"p50": pct(ttft, 50), "p95": pct(ttft, 95), "p99": pct(ttft, 99), "max": round(max(ttft)) if ttft else None},
         "tokens": {"input": tokens_in, "output": tokens_out},
+        "cost_from_receipts_usd": {
+            "cash_charged": round(cash, 6),
+            "go_allowance_used": round(allowance, 6),
+            "list_value": round(listed, 6),
+            "allowance_per_chat": per_chat(allowance),
+            "list_value_per_chat": per_chat(listed),
+            "allowance_per_1000_chats": round(per_chat(allowance) * 1000, 4) if ok else None,
+            "receipts_missing": sum(1 for r in ok if not r["usage"]),
+        },
         "errors": dict(sorted(errors.items(), key=lambda kv: -kv[1])),
     }
 
@@ -338,8 +356,10 @@ def main():
         p.error("--url and --key (or GATEWAY_KEY) are required unless --mock is used")
     client = Client(args.url)
     admin = Admin(client, args.admin_password) if args.admin_password else None
+    ledger_before = None
     if admin:
         admin.reset()
+        ledger_before = admin.totals()
 
     stats = Stats()
     started = time.time()
@@ -384,7 +404,18 @@ def main():
         "client": summarize(stats.results, elapsed),
     }
     if admin:
-        time.sleep(6)  # let the monitor take its final sample
+        time.sleep(6)  # let the monitor take its final sample and the ledger flush
+        after = admin.totals()
+        if ledger_before and after:
+            report["cost_from_gateway_ledger_usd"] = {
+                "note": "Change in dashboard totals during the test; includes any other traffic at the same time",
+                "requests": after["requests"] - ledger_before["requests"],
+                "cash_charged": round(after["cash_usd"] - ledger_before["cash_usd"], 6),
+                "go_allowance_used": round(after["allowance_usd"] - ledger_before["allowance_usd"], 6),
+                "list_value": round(after["list_usd"] - ledger_before["list_usd"], 6),
+                "input_tokens": after["prompt_tokens"] - ledger_before["prompt_tokens"],
+                "output_tokens": after["completion_tokens"] - ledger_before["completion_tokens"],
+            }
         m = admin.metrics()
         if m:
             s = m["summary"]
