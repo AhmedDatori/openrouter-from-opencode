@@ -40,8 +40,43 @@ Reference: [Let's Encrypt public IP certificates](https://letsencrypt.org/2026/0
 
 ## Install from the Windows desktop
 
-1. In the server's browser, sign in to GitHub and open the private project's
-   [release](https://github.com/AhmedDatori/go-router/releases/tag/v0.1.0).
+### Clone and install without GitHub sign-in
+
+Install [Git for Windows](https://git-scm.com/install/windows). Open **Windows
+PowerShell as Administrator**, then run these commands on a fresh installation:
+
+```powershell
+$ErrorActionPreference = 'Stop'
+git clone https://github.com/AhmedDatori/openrouter-from-opencode.git C:\go-router
+if ($LASTEXITCODE -ne 0) { throw 'Clone failed. Stop here and inspect the error.' }
+Set-Location C:\go-router
+$packageDir = Join-Path $env:TEMP 'go-router-release'
+New-Item -ItemType Directory -Path $packageDir -Force | Out-Null
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+$release = 'https://github.com/AhmedDatori/openrouter-from-opencode/releases/download/v0.1.0'
+$zip = Join-Path $packageDir 'go-router-windows-x86_64.zip'
+Invoke-WebRequest -UseBasicParsing "$release/go-router-windows-x86_64.zip" -OutFile $zip
+Invoke-WebRequest -UseBasicParsing "$release/go-router-windows-x86_64.zip.sha256" -OutFile "$zip.sha256"
+$expected = (Get-Content "$zip.sha256" -Raw).Trim().Split(' ')[0]
+if ((Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected) {
+    throw 'Download checksum mismatch.'
+}
+Expand-Archive $zip -DestinationPath "$packageDir/unpacked" -Force
+Copy-Item "$packageDir/unpacked/go-router/go-router.exe" .\go-router.exe
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\publish-windows.ps1 -Address 168.119.149.240
+```
+
+Use your own server IP in the last line. The binary is prebuilt: GitHub CLI,
+GitHub sign-in, Rust, and a C compiler are not needed. If `C:\go-router` already
+exists, use/update that installation instead of deleting its private configuration.
+Follow steps 4-6 below to retrieve the admin password, verify public access, and
+create application keys. Provider-level TCP 80/443 access is still required.
+
+### Install by downloading the ZIP in a browser
+
+1. In the server's browser, open the project's public
+   [release](https://github.com/AhmedDatori/openrouter-from-opencode/releases/tag/v0.1.0).
+   No GitHub sign-in is required.
    Download **go-router-windows-x86_64.zip** into Downloads. Do not download the
    Linux archive. Alternatively, transfer this ZIP by SCP or another trusted
    file-transfer method; SSH is for transferring/administering only.

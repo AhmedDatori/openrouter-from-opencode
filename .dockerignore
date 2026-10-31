@@ -6,3 +6,5 @@ data
 *.db*
 .venv
 /go-router
+/go-router.exe
+/caddy/

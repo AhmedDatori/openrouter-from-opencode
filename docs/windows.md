@@ -43,7 +43,7 @@ Reference: [Microsoft OpenSSH setup](https://learn.microsoft.com/en-us/windows-s
 
 ## 2. Transfer and extract the package
 
-Download the ZIP from the private GitHub release to your local computer, then:
+Download the ZIP from the public GitHub release to your local computer, then:
 
 ```bash
 scp go-router-windows-x86_64.zip administrator@SERVER_IP:go-router-windows-x86_64.zip

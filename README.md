@@ -1,4 +1,4 @@
-# Go Router
+# OpenRouter from OpenCode
 
 A small Rust gateway that exposes **OpenRouter-compatible inference endpoints** using
 an **OpenCode Go** subscription. One binary, one SQLite database, one admin dashboard.
@@ -52,14 +52,14 @@ Requirements: Docker Engine, Compose plugin, an active Go subscription and API k
 Python 3 is used only by the optional setup helper. You can edit `.env` manually.
 
 ```bash
-git clone https://github.com/AhmedDatori/go-router.git
+git clone https://github.com/AhmedDatori/openrouter-from-opencode.git go-router
 cd go-router
 python3 scripts/setup.py
 docker compose up -d --build gateway
 ```
 
-The private repository requires your GitHub authentication. The helper reads your
-Go key with hidden terminal input, generates a strong admin password, and creates
+The public repository and release downloads require no GitHub sign-in. The helper
+reads your Go key with hidden terminal input, generates a strong admin password, and creates
 `.env` with mode `600`. It does not print credentials or overwrite an existing file.
 
 Open **http://localhost:8080/admin**. Read your generated login information locally
@@ -87,9 +87,8 @@ A release package contains the binary, catalog, and documentation. It needs no R
 compiler. For Linux x86_64 with glibc 2.34+ (for example Debian 12 or Ubuntu 22.04+):
 
 ```bash
-gh release download v0.1.0 --repo AhmedDatori/go-router \
-  --pattern 'go-router-linux-x86_64.tar.gz' \
-  --pattern 'go-router-linux-x86_64.tar.gz.sha256'
+curl -fLO https://github.com/AhmedDatori/openrouter-from-opencode/releases/download/v0.1.0/go-router-linux-x86_64.tar.gz
+curl -fLO https://github.com/AhmedDatori/openrouter-from-opencode/releases/download/v0.1.0/go-router-linux-x86_64.tar.gz.sha256
 sha256sum -c go-router-linux-x86_64.tar.gz.sha256
 tar xzf go-router-linux-x86_64.tar.gz
 cd go-router
@@ -98,8 +97,8 @@ python3 scripts/setup.py
 ./go-router
 ```
 
-GitHub authentication is required for private release downloads. You can also download
-the archive in your authenticated browser and copy it to the server. ARM64 can build
+Release downloads are public. You can also download the archive in your browser
+and copy it to the server. ARM64 can build
 the Dockerfile/source natively; the release workflow includes an ARM64 build job.
 
 For source builds, install Rust **1.88+** and a C compiler for bundled SQLite:

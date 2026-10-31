@@ -23,7 +23,7 @@ needed. x86_64 and ARM64 can build the same source or the Dockerfile natively.
 
 1. Point a domain's A/AAAA records to the server. Permit inbound TCP 80/443 and
    optional UDP 443. Docker must be able to reach the internet for Go and TLS.
-2. Clone the private repository using your GitHub credentials.
+2. Clone the public repository; no GitHub sign-in is required.
 3. Generate configuration for that exact origin:
 
    ```bash
