@@ -333,12 +333,63 @@ pub async fn reload_models(State(app): State<App>, headers: HeaderMap) -> ApiRes
 }
 pub async fn settings(State(app): State<App>, headers: HeaderMap) -> ApiResult<Json<Value>> {
     auth::admin(&app, &headers, false).await?;
+    let upstream = app.upstream.read().unwrap();
     Ok(Json(
-        json!({"version":env!("CARGO_PKG_VERSION"),"default_model":app.cfg.default_model,"max_concurrent_requests":app.cfg.max_concurrent,"max_body_bytes":app.cfg.max_body_bytes,"max_response_bytes":app.cfg.max_response_bytes,"log_bodies":app.cfg.log_bodies,"max_log_bytes":app.cfg.max_log_bytes,"retention_days":app.cfg.retention_days,"request_timeout_seconds":app.cfg.timeout_secs,"stream_idle_timeout_seconds":app.cfg.idle_timeout_secs,"monthly_subscription_usd":app.cfg.subscription_usd,"public_url":app.cfg.public_url,"cookie_secure":app.cfg.cookie_secure,"catalog_models":app.catalog.read().unwrap().models.len(),"upstream_connected":!app.cfg.upstream_key.is_empty(),"notice":"Cash cost is the amount actually reported as charged. List value and Go allowance are separate. Subscription price is fixed and is not a per-request charge."}),
+        json!({"version":env!("CARGO_PKG_VERSION"),"default_model":app.cfg.default_model,"max_concurrent_requests":app.cfg.max_concurrent,"max_body_bytes":app.cfg.max_body_bytes,"max_response_bytes":app.cfg.max_response_bytes,"log_bodies":app.cfg.log_bodies,"max_log_bytes":app.cfg.max_log_bytes,"retention_days":app.cfg.retention_days,"request_timeout_seconds":app.cfg.timeout_secs,"stream_idle_timeout_seconds":app.cfg.idle_timeout_secs,"monthly_subscription_usd":app.cfg.subscription_usd,"public_url":app.cfg.public_url,"cookie_secure":app.cfg.cookie_secure,"catalog_models":app.catalog.read().unwrap().models.len(),"upstream_connected":!upstream.key.is_empty(),"upstream_configured":!upstream.key.is_empty(),"upstream_source":upstream.source,"notice":"Cash cost is the amount actually reported as charged. List value and Go allowance are separate. Subscription price is fixed and is not a per-request charge."}),
     ))
 }
 
 pub async fn events(State(app): State<App>, headers: HeaderMap) -> ApiResult<Json<Value>> {
     auth::admin(&app, &headers, false).await?;
     Ok(Json(app.db.events().await.map_err(ApiError::internal)?))
+}
+
+pub async fn save_upstream_key(State(app): State<App>, req: Request) -> ApiResult<Json<Value>> {
+    auth::admin(&app, req.headers(), true).await?;
+    let body = read_json(req, 8192).await?;
+    let key = body
+        .get("api_key")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| {
+            (16..=4096).contains(&s.len())
+                && s.bytes().all(|b| (33..=126).contains(&b))
+                && !s.starts_with("replace-with-")
+        })
+        .ok_or_else(|| {
+            ApiError::bad(
+                "Enter a Go API key containing 16-4096 printable ASCII characters without spaces.",
+            )
+        })?
+        .to_string();
+    let _guard = app.credential_updates.lock().await;
+    app.db
+        .set_upstream_credential(key.clone())
+        .await
+        .map_err(ApiError::internal)?;
+    *app.upstream.write().unwrap() = crate::UpstreamCredential {
+        key,
+        source: "dashboard",
+    };
+    Ok(Json(
+        json!({"ok":true,"upstream_configured":true,"notice":"Saved on the server. New requests use this key immediately. The key is never returned by the dashboard API."}),
+    ))
+}
+
+pub async fn remove_upstream_key(
+    State(app): State<App>,
+    headers: HeaderMap,
+) -> ApiResult<Json<Value>> {
+    auth::admin(&app, &headers, true).await?;
+    let _guard = app.credential_updates.lock().await;
+    // Persist an empty value so a legacy environment key does not reappear on restart.
+    app.db
+        .set_upstream_credential(String::new())
+        .await
+        .map_err(ApiError::internal)?;
+    *app.upstream.write().unwrap() = crate::UpstreamCredential {
+        key: String::new(),
+        source: "dashboard",
+    };
+    Ok(Json(json!({"ok":true,"upstream_configured":false})))
 }

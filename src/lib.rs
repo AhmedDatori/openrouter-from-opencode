@@ -26,6 +26,10 @@ use tower_http::cors::{Any, CorsLayer};
 
 #[derive(Clone)]
 pub struct App(pub Arc<Inner>);
+pub struct UpstreamCredential {
+    pub key: String,
+    pub source: &'static str,
+}
 pub struct Inner {
     pub cfg: config::Config,
     pub db: db::Db,
@@ -36,6 +40,8 @@ pub struct Inner {
     pub rate: Mutex<HashMap<String, (Instant, u32)>>,
     pub login_rate: Mutex<(Instant, u32)>,
     pub password_hash: String,
+    pub upstream: RwLock<UpstreamCredential>,
+    pub credential_updates: tokio::sync::Mutex<()>,
 }
 impl std::ops::Deref for App {
     type Target = Inner;
@@ -57,6 +63,24 @@ impl App {
             .to_string();
         cfg.admin_password.clear();
         let db = db::Db::open(&cfg.database)?;
+        let stored_key = db.upstream_credential().await?;
+        let upstream = if let Some(key) = stored_key {
+            UpstreamCredential {
+                key,
+                source: "dashboard",
+            }
+        } else {
+            let key = std::mem::take(&mut cfg.upstream_key);
+            UpstreamCredential {
+                key: if key.starts_with("replace-with-") {
+                    String::new()
+                } else {
+                    key
+                },
+                source: "environment",
+            }
+        };
+        cfg.upstream_key.clear();
         db.call(|c| {
             c.execute("DELETE FROM admin_sessions", [])?;
             Ok(())
@@ -80,6 +104,8 @@ impl App {
             rate: Mutex::new(HashMap::new()),
             login_rate: Mutex::new((Instant::now(), 0)),
             password_hash,
+            upstream: RwLock::new(upstream),
+            credential_updates: tokio::sync::Mutex::new(()),
         })))
     }
 }
@@ -146,6 +172,10 @@ pub fn router(app: App) -> Router {
         .route("/models", get(admin::models))
         .route("/models/reload", post(admin::reload_models))
         .route("/settings", get(admin::settings));
+    let admin = admin.route(
+        "/upstream-key",
+        post(admin::save_upstream_key).delete(admin::remove_upstream_key),
+    );
     Router::new()
         .nest("/api/v1", api.clone())
         .nest("/v1", api)

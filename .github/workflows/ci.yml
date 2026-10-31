@@ -18,6 +18,7 @@ jobs:
       - run: cargo test --locked
       - run: cargo build --locked
       - run: python3 tests/integration.py
+      - run: python3 tests/credentials.py
       - run: python3 scripts/check_catalog.py
       - run: node --check static/app.js
       - name: Validate published OpenRouter response contracts

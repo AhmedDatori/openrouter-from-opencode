@@ -108,6 +108,7 @@ impl Db {
           CREATE INDEX IF NOT EXISTS logs_upstream ON logs(upstream_id);
           CREATE TABLE IF NOT EXISTS usage_daily(day TEXT NOT NULL, key_id TEXT NOT NULL, model TEXT NOT NULL, requests INTEGER NOT NULL DEFAULT 0, errors INTEGER NOT NULL DEFAULT 0, cash REAL NOT NULL DEFAULT 0, list_cost REAL NOT NULL DEFAULT 0, allowance REAL NOT NULL DEFAULT 0, prompt_tokens INTEGER NOT NULL DEFAULT 0, completion_tokens INTEGER NOT NULL DEFAULT 0, usage_missing INTEGER NOT NULL DEFAULT 0, duration_ms INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(day,key_id,model));
           CREATE TABLE IF NOT EXISTS admin_events(id INTEGER PRIMARY KEY, created_at TEXT DEFAULT CURRENT_TIMESTAMP, action TEXT NOT NULL, details TEXT NOT NULL);
+          CREATE TABLE IF NOT EXISTS gateway_secrets(name TEXT PRIMARY KEY, value TEXT NOT NULL);
           PRAGMA user_version=1;")?;
         let (tx, rx) = mpsc::channel::<Job>();
         std::thread::Builder::new()
@@ -155,6 +156,28 @@ impl Db {
     }
     pub async fn flush(&self) -> Result<()> {
         self.call(|_| Ok(())).await
+    }
+    pub async fn upstream_credential(&self) -> Result<Option<String>> {
+        self.call(|c| {
+            c.query_row(
+                "SELECT value FROM gateway_secrets WHERE name='opencode_go_key'",
+                [],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(Into::into)
+        })
+        .await
+    }
+    pub async fn set_upstream_credential(&self, key: String) -> Result<()> {
+        self.call(move |c| {
+            let tx = c.transaction()?;
+            let configured = !key.is_empty();
+            tx.execute("INSERT INTO gateway_secrets(name,value) VALUES('opencode_go_key',?1) ON CONFLICT(name) DO UPDATE SET value=excluded.value", [key])?;
+            tx.execute("INSERT INTO admin_events(action,details) VALUES(?1,?2)", params![if configured { "upstream_key_saved" } else { "upstream_key_removed" }, json!({"configured":configured}).to_string()])?;
+            tx.commit()?;
+            Ok(())
+        }).await
     }
     pub async fn find_key(&self, hash: String) -> Result<Option<Key>> {
         self.call(move|c|c.query_row("SELECT id,name,prefix,created_at,disabled,rpm,allowed_models,expires_at FROM api_keys WHERE hash=?1",[hash],key_row).optional().map_err(Into::into)).await

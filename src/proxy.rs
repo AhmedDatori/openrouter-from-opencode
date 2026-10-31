@@ -129,6 +129,13 @@ async fn handle(app: App, ctx: Context, req: Request, kind: Kind) -> ApiResult<R
     ctx.edit(|r| r.kind = "inference".into());
     let headers = req.headers().clone();
     let key = auth::api_key(&app, &headers, Some(&ctx), true).await?;
+    let upstream_key = app.upstream.read().unwrap().key.clone();
+    if upstream_key.is_empty() {
+        return Err(ApiError::new(
+            503,
+            "OpenCode Go is not configured. The administrator must save a Go API key in Dashboard > Setup & settings.",
+        ));
+    }
     let permit = app.slots.clone().try_acquire_owned().map_err(|_| {
         let mut e = ApiError::new(429, "Gateway concurrency limit reached");
         e.retry_after = Some("1".into());
@@ -179,7 +186,7 @@ async fn handle(app: App, ctx: Context, req: Request, kind: Kind) -> ApiResult<R
         let mut request = app
             .http
             .post(format!("{}/{}", app.cfg.upstream_base, kind.path()))
-            .bearer_auth(&app.cfg.upstream_key)
+            .bearer_auth(&upstream_key)
             .header("x-opencode-session", &session)
             .header(
                 "accept",
@@ -239,7 +246,7 @@ async fn handle(app: App, ctx: Context, req: Request, kind: Kind) -> ApiResult<R
             )
             .await
             .unwrap_or(json!({}));
-            let mut error = upstream_error(status, &raw, &app.cfg.upstream_key);
+            let mut error = upstream_error(status, &raw, &upstream_key);
             error.retry_after = retry;
             if matches!(status.as_u16(), 401 | 402) {
                 return Err(error);
@@ -347,7 +354,7 @@ async fn handle(app: App, ctx: Context, req: Request, kind: Kind) -> ApiResult<R
             return Err(upstream_error(
                 StatusCode::BAD_GATEWAY,
                 &value,
-                &app.cfg.upstream_key,
+                &upstream_key,
             ));
         }
         if !value.is_object()

@@ -39,8 +39,7 @@ impl Config {
             upstream_base: val("GO_BASE_URL", "https://opencode.ai/inference/go")
                 .trim_end_matches('/')
                 .into(),
-            upstream_key: env::var("OPENCODE_GO_API_KEY")
-                .context("Set OPENCODE_GO_API_KEY in .env")?,
+            upstream_key: val("OPENCODE_GO_API_KEY", "").trim().into(),
             admin_password: env::var("ADMIN_PASSWORD").context("Set ADMIN_PASSWORD in .env")?,
             public_url: env::var("PUBLIC_URL")
                 .ok()
@@ -65,9 +64,6 @@ impl Config {
                 .collect(),
             subscription_usd: num("MONTHLY_SUBSCRIPTION_USD", "10")?,
         };
-        if c.upstream_key.trim().is_empty() || c.upstream_key.starts_with("replace-with-") {
-            bail!("OPENCODE_GO_API_KEY cannot be empty");
-        }
         if c.admin_password.len() < 16 || c.admin_password.starts_with("replace-with-") {
             bail!("ADMIN_PASSWORD must have at least 16 characters");
         }

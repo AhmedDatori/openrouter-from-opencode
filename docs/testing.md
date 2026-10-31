@@ -139,3 +139,13 @@ contract/browser checks and the Docker build were completed separately.
 The supplied Linux x86_64 binary was built locally from the Dockerfile and passed
 the HTTP integration and published-schema checks. Deployment does not depend on
 Actions. After resolving GitHub account billing/limits, rerun the CI workflow.
+# Dashboard credential checks (v0.2.0)
+
+`python3 tests/credentials.py` uses fake keys and a local mock to check keyless
+startup, admin/CSRF/origin protections, immediate save/rotation, persistence across
+restarts, disabling without reviving an environment fallback, secret redaction,
+noninteractive setup, and safe errors for malformed dotenv files.
+`tests/browser-credentials.cjs` uses an isolated gateway/database and fake keys to
+check first-run guidance, masked input, save/replace/remove, response/markup secrecy,
+and mobile layout. It never contacts OpenCode. These are Linux runtime checks;
+native Windows startup/service behavior still requires Windows verification.

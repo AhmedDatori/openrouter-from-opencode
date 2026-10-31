@@ -1101,3 +1101,9 @@ dialog .close {
     display: block;
   }
 }
+
+.upstream-panel { margin-bottom: 24px; }
+.upstream-panel form { max-width: 640px; }
+
+.pill.needs-setup { background: #fff3dc; color: #76501c; }
+.pill.needs-setup .dot { background: #b57b25; }

@@ -39,7 +39,8 @@ needed. x86_64 and ARM64 can build the same source or the Dockerfile natively.
    ```
 
 6. Visit `https://api.example.com/admin`, sign in with the password in the private
-   `data/admin-login.txt` setup output, and create an application key.
+   `data/admin-login.txt` setup output, save your Go key in **Setup & settings**,
+   and create an application key.
 7. Point your backend to `https://api.example.com/api/v1` and use that new key.
 
 The gateway's direct Docker port is bound to host loopback; Caddy reaches it over
@@ -141,7 +142,12 @@ disabled for SSE. Keep proxy body limits aligned with your configured gateway li
 
 ## Model and credential maintenance
 
-Update the upstream key in `.env` and restart. Client API keys remain unchanged.
+Save or replace the upstream key in **Dashboard > Setup & settings**. Changes
+apply immediately to new requests; in-flight requests finish using their original
+key. The value is stored in the private SQLite database and survives restarts.
+`OPENCODE_GO_API_KEY` is an optional legacy fallback when no dashboard value exists.
+Removing the dashboard key persists a disabled state, so a legacy environment key
+does not silently reappear after a restart. Client API keys remain unchanged.
 Changing the upstream key does not change Go subscription limits or privacy settings.
 
 Edit the reviewed model catalog and reload it through the dashboard. Existing in-flight

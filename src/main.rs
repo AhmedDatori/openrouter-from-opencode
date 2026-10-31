@@ -3,7 +3,15 @@ use go_router::{App, config::Config, router};
 use std::time::Duration;
 #[tokio::main(worker_threads = 2)]
 async fn main() -> Result<()> {
-    dotenvy::dotenv().ok();
+    // A Windows startup task or PowerShell launch may inherit System32 as cwd.
+    // Windows packages keep their configuration and catalog beside the executable.
+    #[cfg(windows)]
+    if let Some(directory) = std::env::current_exe()?.parent() {
+        std::env::set_current_dir(directory)?;
+    }
+    if std::path::Path::new(".env").exists() {
+        dotenvy::from_path(".env").map_err(|_| anyhow::anyhow!("Could not load .env. Save it as UTF-8 with valid KEY=value lines. Credential values are not printed."))?;
+    }
     if std::env::args().any(|a| a == "--version") {
         println!("go-router {}", env!("CARGO_PKG_VERSION"));
         return Ok(());

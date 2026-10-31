@@ -108,7 +108,7 @@ function loginPage(error = "") {
   csrf = "";
   cache = {};
   $("#app").innerHTML =
-    `<div class="login"><section class="login-art">${brand()}<h1>One gateway.<br>Your entire workflow.</h1><p>Your models, API keys, and usage.<br>A small gateway with everything in one place.</p><div class="mini-code">POST /api/v1/chat/completions\n\n{\n  "model": "deepseek/deepseek-v4.1-flash",\n  "messages": [{ "role": "user", "content": "Hello" }]\n}</div><footer>Powered by Rust · Connected to OpenCode Go</footer></section><section class="login-box"><form id="login-form" class="login-form"><h2>Welcome back</h2><p>Sign in to manage your gateway.</p>${error ? `<div class="error-box">${esc(error)}</div>` : ""}<div class="formfield"><label for="password">Admin password</label><input id="password" name="password" type="password" required autocomplete="current-password" placeholder="Enter your admin password"></div><button class="btn primary" type="submit">Sign in ${icon("arrow")}</button><p class="spacer"><small>Your password is set in the server’s environment configuration.</small></p></form></section></div>`;
+    `<div class="login"><section class="login-art">${brand()}<h1>One gateway.<br>Your entire workflow.</h1><p>Your models, API keys, and usage.<br>A small gateway with everything in one place.</p><div class="mini-code">POST /api/v1/chat/completions\n\n{\n  "model": "deepseek/deepseek-v4.1-flash",\n  "messages": [{ "role": "user", "content": "Hello" }]\n}</div><footer>Powered by Rust · OpenCode Go gateway</footer></section><section class="login-box"><form id="login-form" class="login-form"><h2>Welcome back</h2><p>Sign in to manage your gateway.</p>${error ? `<div class="error-box">${esc(error)}</div>` : ""}<div class="formfield"><label for="password">Admin password</label><input id="password" name="password" type="password" required autocomplete="current-password" placeholder="Enter your admin password"></div><button class="btn primary" type="submit">Sign in ${icon("arrow")}</button><p class="spacer"><small>Your password is set in the server’s environment configuration.</small></p></form></section></div>`;
 }
 const names = {
   overview: "Overview",
@@ -135,7 +135,7 @@ function shell() {
       )
       .join(
         "",
-      )}</nav><div class="sidebar-bottom"><div class="local-badge"><span class="dot"></span>One process. Your infrastructure.</div><div class="profile"><span class="avatar">AD</span><div><strong>Administrator</strong><small>Gateway owner</small></div><button class="icon-btn" data-action="logout" title="Sign out" aria-label="Sign out">${icon("logout")}</button></div></div></aside><section class="main"><header class="topbar"><span>Workspace <span class="muted">/</span> <strong>${names[tab]}</strong></span><span class="pill"><span class="dot"></span>Go key configured</span><button class="icon-btn mobile-logout" data-action="logout" title="Sign out" aria-label="Sign out">${icon("logout")}</button></header><div class="content" id="content"></div></section></div>`;
+      )}</nav><div class="sidebar-bottom"><div class="local-badge"><span class="dot"></span>One process. Your infrastructure.</div><div class="profile"><span class="avatar">AD</span><div><strong>Administrator</strong><small>Gateway owner</small></div><button class="icon-btn" data-action="logout" title="Sign out" aria-label="Sign out">${icon("logout")}</button></div></div></aside><section class="main"><header class="topbar"><span>Workspace <span class="muted">/</span> <strong>${names[tab]}</strong></span><span class="pill" id="upstream-status">Checking Go key…</span><button class="icon-btn mobile-logout" data-action="logout" title="Sign out" aria-label="Sign out">${icon("logout")}</button></header><div class="content" id="content"></div></section></div>`;
 }
 function heading(title, sub, action = "") {
   return `<div class="heading"><div><h1>${title}</h1><p>${sub}</p></div><div class="actions">${action}<button class="btn" data-action="refresh">${icon("refresh")}Refresh</button></div></div>`;
@@ -187,7 +187,7 @@ async function overview() {
       "Gateway overview",
       "A clear view of your requests, usage, and costs.",
     ) +
-    `<div class="stats"><div class="stat featured"><div class="stat-top">Total requests ${icon("arrow")}</div><div class="stat-value">${num(t.requests)}</div><div class="stat-foot">${num(t.errors)} failed or interrupted</div></div><div class="stat"><div class="stat-top">Actual cash charged ${icon("money")}</div><div class="stat-value">${money(t.cash_usd)}</div><div class="stat-foot">Reported by OpenCode Go</div></div><div class="stat"><div class="stat-top">Tokens processed ${icon("tokens")}</div><div class="stat-value">${num(tokens)}</div><div class="stat-foot">${num(t.prompt_tokens)} input · ${num(t.completion_tokens)} output</div></div><div class="stat"><div class="stat-top">Average completion ${icon("clock")}</div><div class="stat-value">${t.requests ? ms(t.avg_duration_ms) : "—"}</div><div class="stat-foot">Full request duration · includes streaming</div></div></div><div class="grid2"><section class="panel"><div class="panelhead"><h2>Request activity</h2><small>Last 7 days · UTC</small></div>${chart(stats.daily)}</section><section class="panel"><div class="panelhead"><h2>Understand your costs</h2><small>Lifetime totals</small></div><div class="usage-list"><div class="usage-item"><div>Cash charged<small>Extra money charged per request</small></div><strong>${money(t.cash_usd)}</strong></div><div class="usage-item"><div>Go allowance consumed<small>Usage deducted from your plan</small></div><strong>${money(t.allowance_usd)}</strong></div><div class="usage-item"><div>API list value<small>Model price before plan coverage</small></div><strong>${money(t.list_usd)}</strong></div></div><div class="usage-total"><span>Fixed monthly subscription</span><strong>${money(cache.settings.monthly_subscription_usd)}</strong></div><div class="info-note">Included Go requests can charge $0 while consuming allowance. ${num(t.usage_missing)} request(s) have no usage receipt.</div></section></div><section class="panel"><div class="panelhead"><h2>Recent requests</h2><button class="btn small" data-tab="logs">View all ${icon("arrow", 13)}</button></div>${table(logs.data)}</section><p class="footnote">Cost and usage totals are retained independently of the ${cache.settings.retention_days}-day detailed log window. Output tokens include reasoning when reported by the upstream.</p>`;
+    `${!cache.settings.upstream_configured ? '<div class="inline-notice">OpenCode Go is not configured. <button class="btn small" data-tab="setup">Add your Go API key</button></div>' : ""}<div class="stats"><div class="stat featured"><div class="stat-top">Total requests ${icon("arrow")}</div><div class="stat-value">${num(t.requests)}</div><div class="stat-foot">${num(t.errors)} failed or interrupted</div></div><div class="stat"><div class="stat-top">Actual cash charged ${icon("money")}</div><div class="stat-value">${money(t.cash_usd)}</div><div class="stat-foot">Reported by OpenCode Go</div></div><div class="stat"><div class="stat-top">Tokens processed ${icon("tokens")}</div><div class="stat-value">${num(tokens)}</div><div class="stat-foot">${num(t.prompt_tokens)} input · ${num(t.completion_tokens)} output</div></div><div class="stat"><div class="stat-top">Average completion ${icon("clock")}</div><div class="stat-value">${t.requests ? ms(t.avg_duration_ms) : "—"}</div><div class="stat-foot">Full request duration · includes streaming</div></div></div><div class="grid2"><section class="panel"><div class="panelhead"><h2>Request activity</h2><small>Last 7 days · UTC</small></div>${chart(stats.daily)}</section><section class="panel"><div class="panelhead"><h2>Understand your costs</h2><small>Lifetime totals</small></div><div class="usage-list"><div class="usage-item"><div>Cash charged<small>Extra money charged per request</small></div><strong>${money(t.cash_usd)}</strong></div><div class="usage-item"><div>Go allowance consumed<small>Usage deducted from your plan</small></div><strong>${money(t.allowance_usd)}</strong></div><div class="usage-item"><div>API list value<small>Model price before plan coverage</small></div><strong>${money(t.list_usd)}</strong></div></div><div class="usage-total"><span>Fixed monthly subscription</span><strong>${money(cache.settings.monthly_subscription_usd)}</strong></div><div class="info-note">Included Go requests can charge $0 while consuming allowance. ${num(t.usage_missing)} request(s) have no usage receipt.</div></section></div><section class="panel"><div class="panelhead"><h2>Recent requests</h2><button class="btn small" data-tab="logs">View all ${icon("arrow", 13)}</button></div>${table(logs.data)}</section><p class="footnote">Cost and usage totals are retained independently of the ${cache.settings.retention_days}-day detailed log window. Output tokens include reasoning when reported by the upstream.</p>`;
 }
 async function keysPage() {
   cache.keys = (await api("/keys")).data;
@@ -261,7 +261,7 @@ function setupPage() {
       "Setup & settings",
       "Connect your backend and inspect the gateway configuration.",
     ) +
-    `<div class="setup-grid"><section class="panel"><h2>Connect your application</h2><p>Replace your OpenRouter base URL and API key. Choose a model from this gateway’s Go catalog.</p><div class="endpoint"><code>${esc(url)}</code><button class="icon-btn" data-copy="${esc(url)}" aria-label="Copy API base URL">${icon("copy")}</button></div><h3 class="spacer">Python · OpenAI SDK</h3><pre>${esc(example)}</pre><p class="footnote">Chat Completions, streaming, tool calls, structured outputs, Responses and Anthropic Messages are forwarded to Go. OpenRouter-only hosted services and stateful Responses are not available.</p></section><section class="panel"><h2>Server configuration</h2><div class="settings-list">${[
+    `<section class="panel upstream-panel"><h2>OpenCode Go connection</h2><p>${s.upstream_configured ? "A Go API key is saved. You can replace it below." : "Add your Go API key to enable model requests."}</p><form id="upstream-key-form"><div class="formfield"><label for="upstream-key">OpenCode Go API key</label><input id="upstream-key" name="api_key" type="password" autocomplete="new-password" spellcheck="false" minlength="16" maxlength="4096" required placeholder="Paste your Go API key"></div><div class="actions"><button type="submit" class="btn primary">${s.upstream_configured ? "Replace Go key" : "Save Go key"}</button>${s.upstream_configured ? '<button type="button" class="btn" data-action="remove-upstream-key">Remove Go key</button>' : ""}</div></form><p class="footnote">Saved privately on this server. The saved key is never shown again or returned by the dashboard API. Changes apply to new requests immediately; no restart is needed. Application keys are created separately in API keys.</p></section><div class="setup-grid"><section class="panel"><h2>Connect your application</h2><p>Replace your OpenRouter base URL and API key. Choose a model from this gateway’s Go catalog.</p><div class="endpoint"><code>${esc(url)}</code><button class="icon-btn" data-copy="${esc(url)}" aria-label="Copy API base URL">${icon("copy")}</button></div><h3 class="spacer">Python · OpenAI SDK</h3><pre>${esc(example)}</pre><p class="footnote">Chat Completions, streaming, tool calls, structured outputs, Responses and Anthropic Messages are forwarded to Go. OpenRouter-only hosted services and stateful Responses are not available.</p></section><section class="panel"><h2>Server configuration</h2><div class="settings-list">${[
       ["Version", s.version],
       ["Default model", s.default_model],
       ["Concurrent requests", s.max_concurrent_requests],
@@ -281,7 +281,7 @@ function setupPage() {
       )
       .join(
         "",
-      )}</div><p class="footnote">Change server settings in .env and restart. The upstream credential is never exposed by the admin API.</p><div class="actions"><button class="btn" data-action="reload-models">${icon("refresh")}Reload model catalog</button><button class="btn" data-action="admin-events">Admin activity</button></div></section></div>`;
+      )}</div><p class="footnote">Change other server settings in .env and restart. Manage your Go API key using the form above.</p><div class="actions"><button class="btn" data-action="reload-models">${icon("refresh")}Reload model catalog</button><button class="btn" data-action="admin-events">Admin activity</button></div></section></div>`;
 }
 async function navigate(next = tab) {
   tab = next;
@@ -298,6 +298,9 @@ async function navigate(next = tab) {
       cache.models = m.data;
       cache.keys = k.data;
     }
+    const status = $("#upstream-status");
+    status.innerHTML = `<span class="dot"></span>${cache.settings.upstream_configured ? "Go key configured" : "Go key required"}`;
+    status.classList.toggle("needs-setup", !cache.settings.upstream_configured);
     if (tab === "overview") await overview();
     else if (tab === "keys") await keysPage();
     else if (tab === "logs") await logsPage();
@@ -329,6 +332,13 @@ async function action(name, el) {
     case "logout":
       await api("/session", { method: "DELETE" });
       loginPage();
+      break;
+    case "remove-upstream-key":
+      if (!confirm("Remove the Go key? New model requests will be unavailable until you save a key.")) return;
+      await api("/upstream-key", { method: "DELETE" });
+      cache.settings = null;
+      toast("Go key removed");
+      await navigate("setup");
       break;
     case "create-key":
       keyForm();
@@ -429,6 +439,15 @@ document.addEventListener("submit", async (e) => {
       });
       csrf = data.csrf_token;
       await navigate("overview");
+    }
+    if (form.id === "upstream-key-form") {
+      const input = form.elements.namedItem("api_key");
+      const payload = JSON.stringify({ api_key: input.value.trim() });
+      input.value = "";
+      await api("/upstream-key", { method: "POST", body: payload });
+      cache.settings = null;
+      toast("Go key saved. New requests can use it immediately.");
+      await navigate("setup");
     }
     if (form.id === "key-form") {
       const expiry = form.elements.namedItem("expiry").value;

@@ -75,7 +75,7 @@ Set-Location C:\go-router
 $packageDir = Join-Path $env:TEMP 'go-router-release'
 New-Item -ItemType Directory -Path $packageDir -Force | Out-Null
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-$release = 'https://github.com/AhmedDatori/openrouter-from-opencode/releases/download/v0.1.0'
+$release = 'https://github.com/AhmedDatori/openrouter-from-opencode/releases/download/v0.2.0'
 $zip = Join-Path $packageDir 'go-router-windows-x86_64.zip'
 Invoke-WebRequest -UseBasicParsing "$release/go-router-windows-x86_64.zip" -OutFile $zip
 Invoke-WebRequest -UseBasicParsing "$release/go-router-windows-x86_64.zip.sha256" -OutFile "$zip.sha256"
@@ -97,7 +97,7 @@ create application keys. Provider-level TCP 80/443 access is still required.
 ### Install by downloading the ZIP in a browser
 
 1. In the server's browser, open the project's public
-   [release](https://github.com/AhmedDatori/openrouter-from-opencode/releases/tag/v0.1.0).
+   [release](https://github.com/AhmedDatori/openrouter-from-opencode/releases/tag/v0.2.0).
    No GitHub sign-in is required.
    Download **go-router-windows-x86_64.zip** into Downloads. Do not download the
    Linux archive. Alternatively, transfer this ZIP by SCP or another trusted
@@ -110,8 +110,7 @@ create application keys. Provider-level TCP 80/443 access is still required.
    powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\publish-windows.ps1 -Domain api.example.com
    ```
 
-   Replace `api.example.com` with your actual DNS hostname. Setup reads the Go
-   key privately and generates a dashboard password. Existing `.env` credentials
+   Replace `api.example.com` with your actual DNS hostname. Setup generates a dashboard password without asking for a Go key. Existing `.env` credentials
    are preserved when upgrading an existing local setup to a public origin;
    their previous configuration is backed up privately inside `data`.
 
@@ -144,7 +143,9 @@ create application keys. Provider-level TCP 80/443 access is still required.
    Caddy certificate issuance can take a little time after correct DNS and ports
    become reachable. A successful script invocation does not prove public reachability.
 6. Open `https://api.example.com/admin`, sign in with the generated admin password,
-   and create a separate application key for each person or backend. Share the
+   and open **Setup & settings** to save your OpenCode Go API key. It takes effect
+   immediately without a restart. Then create a separate application key for each
+   person or backend. Share the
    base URL and that person's key, not the dashboard password or Go upstream key.
 
 ## Client example
@@ -172,6 +173,41 @@ are not enabled by deploying publicly. Every client shares the same Go subscript
 allowances, privacy settings, availability, and upstream intended-use conditions.
 
 ## Operations
+
+### Upgrade to dashboard-managed Go keys (v0.2.0)
+
+On an existing clone, use Administrator PowerShell:
+
+```powershell
+Set-Location C:\go-router
+git pull --ff-only
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\update-windows.ps1
+```
+
+This downloads and verifies v0.2.0, backs up the previous executable inside `data`,
+and replaces only the executable. It preserves `.env`, SQLite, and the existing
+dashboard password. A running gateway startup task is stopped and restarted.
+In-flight requests can be interrupted. Caddy is left running.
+
+If first setup previously stopped at the Go-key prompt or configuration check,
+finish installation without entering a Go key in the console:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\publish-windows.ps1 -Address 168.119.149.240 -HttpsOnly
+notepad .\data\admin-login.txt
+```
+
+Use `-HttpsOnly` when port 80 is occupied. Then sign in at
+`https://168.119.149.240/admin`, open **Setup & settings**, paste the Go API key into
+the masked field, and choose **Save Go key**. The server accepts new model requests
+immediately; no restart is needed. Saving validates the key's format; the next
+actual model request verifies it with OpenCode. Without a key, authenticated
+inference requests return a descriptive `503`, while the dashboard remains usable.
+An existing Caddy service means publishing is already installed; do not reinstall it.
+
+Windows configuration/catalog paths resolve relative to `go-router.exe`, including
+startup tasks launched from System32. Invalid `.env` parsing now fails with a
+redacted format/encoding message instead of silently ignoring the file.
 
 ```powershell
 Get-Service GoRouterCaddy

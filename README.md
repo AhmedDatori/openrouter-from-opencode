@@ -59,11 +59,12 @@ docker compose up -d --build gateway
 ```
 
 The public repository and release downloads require no GitHub sign-in. The helper
-reads your Go key with hidden terminal input, generates a strong admin password, and creates
+generates a strong admin password and creates
 `.env` with mode `600`. It does not print credentials or overwrite an existing file.
 
 Open **http://localhost:8080/admin**. Read your generated login information locally
-from `data/admin-login.txt`, sign in, and create your first application API key.
+from `data/admin-login.txt`, sign in, and open **Setup & settings** to save your
+OpenCode Go API key. It takes effect immediately. Then create your first application API key.
 The host-side login file is private setup output; container database storage uses
 its own named volume. Do not commit or share either.
 
@@ -87,8 +88,8 @@ A release package contains the binary, catalog, and documentation. It needs no R
 compiler. For Linux x86_64 with glibc 2.34+ (for example Debian 12 or Ubuntu 22.04+):
 
 ```bash
-curl -fLO https://github.com/AhmedDatori/openrouter-from-opencode/releases/download/v0.1.0/go-router-linux-x86_64.tar.gz
-curl -fLO https://github.com/AhmedDatori/openrouter-from-opencode/releases/download/v0.1.0/go-router-linux-x86_64.tar.gz.sha256
+curl -fLO https://github.com/AhmedDatori/openrouter-from-opencode/releases/download/v0.2.0/go-router-linux-x86_64.tar.gz
+curl -fLO https://github.com/AhmedDatori/openrouter-from-opencode/releases/download/v0.2.0/go-router-linux-x86_64.tar.gz.sha256
 sha256sum -c go-router-linux-x86_64.tar.gz.sha256
 tar xzf go-router-linux-x86_64.tar.gz
 cd go-router

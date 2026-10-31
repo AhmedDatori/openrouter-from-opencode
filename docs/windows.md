@@ -75,7 +75,7 @@ Invoke-RestMethod http://127.0.0.1:8080/readyz
 notepad .\data\admin-login.txt
 ```
 
-Setup asks privately for the **OpenCode Go API key**, generates an admin password,
+Setup generates an admin password without asking for an OpenCode key,
 and protects the installation directory for the current account, Administrators,
 and SYSTEM. It never overwrites an existing `.env`. The execution-policy override
 applies only to that PowerShell invocation; no machine policy is changed.
@@ -99,7 +99,7 @@ ssh -N -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 \
 
 Keep that terminal open. In your local browser, open
 `http://127.0.0.1:8080/admin` and enter the generated admin password. Create an
-application key, then configure your backend with:
+Go API key in **Setup & settings**, then create an application key and configure your backend with:
 
 ```text
 Base URL: http://127.0.0.1:8080/api/v1

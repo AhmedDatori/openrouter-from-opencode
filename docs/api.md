@@ -109,3 +109,14 @@ limits always remain in force. The admin password cannot be used as an inference
 The dashboard's log export downloads up to 5000 filtered summaries. Individual
 payloads can be inspected in request details; use paginated admin APIs or a private
 database backup for larger operational exports.
+# Dashboard upstream credentials
+
+The server can start without `OPENCODE_GO_API_KEY`. Sign in to the dashboard and
+save a key under **Setup & settings**. `POST /admin/api/upstream-key` accepts
+`{"api_key":"YOUR_OPENCODE_GO_KEY"}`. `DELETE` on the same route disables the
+credential, including after restart. Both require the admin session, CSRF token,
+and valid origin. They never return the saved key. Settings return only configured
+status/source. The value is stored privately in SQLite; it is not separately
+encrypted at rest. Legacy environment credentials are used only when no dashboard
+setting exists. Changes apply to new requests; in-flight requests keep their
+original credential snapshot. Saving checks format, not provider validity.
