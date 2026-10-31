@@ -51,6 +51,7 @@ async fn main() -> Result<()> {
         return Ok(());
     }
     let app = App::new(config).await?;
+    go_router::metrics::spawn(app.clone())?;
     app.db.cleanup(app.cfg.retention_days).await?;
     let cleanup = app.clone();
     let task = tokio::spawn(async move {

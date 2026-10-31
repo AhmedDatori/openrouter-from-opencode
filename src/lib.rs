@@ -5,6 +5,7 @@ pub mod auth;
 pub mod config;
 pub mod db;
 pub mod error;
+pub mod metrics;
 pub mod models;
 pub mod proxy;
 pub mod sse;
@@ -42,6 +43,7 @@ pub struct Inner {
     pub password_hash: String,
     pub upstream: RwLock<UpstreamCredential>,
     pub credential_updates: tokio::sync::Mutex<()>,
+    pub metrics: metrics::Metrics,
 }
 impl std::ops::Deref for App {
     type Target = Inner;
@@ -106,6 +108,7 @@ impl App {
             password_hash,
             upstream: RwLock::new(upstream),
             credential_updates: tokio::sync::Mutex::new(()),
+            metrics: metrics::Metrics::default(),
         })))
     }
 }
@@ -171,7 +174,9 @@ pub fn router(app: App) -> Router {
         .route("/logs/{id}", get(admin::log))
         .route("/models", get(admin::models))
         .route("/models/reload", post(admin::reload_models))
-        .route("/settings", get(admin::settings));
+        .route("/settings", get(admin::settings))
+        .route("/metrics", get(admin::metrics))
+        .route("/metrics/reset", post(admin::reset_metrics));
     let admin = admin.route(
         "/upstream-key",
         post(admin::save_upstream_key).delete(admin::remove_upstream_key),

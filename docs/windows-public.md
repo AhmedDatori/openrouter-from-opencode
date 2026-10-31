@@ -174,6 +174,23 @@ allowances, privacy settings, availability, and upstream intended-use conditions
 
 ## Operations
 
+### Upgrade to the server monitor (v0.3.0)
+
+Use Administrator PowerShell:
+
+```powershell
+Set-Location C:\go-router
+git pull --ff-only
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\update-windows.ps1
+```
+
+The dashboard gains a **Server monitor** tab. A `perf ...` summary line is appended to
+`data\server.log` every minute while requests are flowing. To check it:
+
+```powershell
+Get-Content .\data\server.log -Tail 20 | Select-String perf
+```
+
 ### Upgrade to dashboard-managed Go keys (v0.2.0)
 
 On an existing clone, use Administrator PowerShell:

@@ -27,6 +27,9 @@ const icons = {
   download: "M12 3v12M7 10l5 5 5-5M3 17v4h18v-4",
   check: "m5 12 4 4L19 6",
   search: "M10 3a7 7 0 1 1 0 14 7 7 0 0 1 0-14Zm5 12 6 6",
+  pulse: "M2 12h4l3-8 5 16 3-8h5",
+  cpu: "M7 7h10v10H7zM10 3v4M14 3v4M10 17v4M14 17v4M3 10h4M3 14h4M17 10h4M17 14h4",
+  memory: "M3 7h18v10H3zM7 7v10M11 7v10M15 7v10M3 21v-4M21 21v-4",
 };
 const icon = (name, size = 16) =>
   `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${icons[name] || icons.grid}"/></svg>`;
@@ -112,6 +115,7 @@ function loginPage(error = "") {
 }
 const names = {
   overview: "Overview",
+  monitor: "Server monitor",
   keys: "API keys",
   logs: "Request logs",
   models: "Models",
@@ -119,6 +123,7 @@ const names = {
 };
 const navicons = {
   overview: "grid",
+  monitor: "pulse",
   keys: "key",
   logs: "logs",
   models: "models",
@@ -283,6 +288,203 @@ function setupPage() {
         "",
       )}</div><p class="footnote">Change other server settings in .env and restart. Manage your Go API key using the form above.</p><div class="actions"><button class="btn" data-action="reload-models">${icon("refresh")}Reload model catalog</button><button class="btn" data-action="admin-events">Admin activity</button></div></section></div>`;
 }
+const mon = { samples: [], last: 0, range: 15 * 60, data: null };
+const mib = (b) => Number(b || 0) / 1048576;
+const fmtMib = (b) =>
+  mib(b) >= 1024 ? (mib(b) / 1024).toFixed(2) + " GiB" : mib(b).toFixed(1) + " MiB";
+const vcpu = (pct) => (Number(pct || 0) / 100).toFixed(2) + " vCPU";
+const fixed = (n, d = 1) => (n == null ? "—" : Number(n).toFixed(d));
+const duration = (s) =>
+  s >= 3600
+    ? Math.floor(s / 3600) + " h " + Math.floor((s % 3600) / 60) + " min"
+    : s >= 60
+      ? Math.floor(s / 60) + " min " + Math.round(s % 60) + " s"
+      : Math.round(s) + " s";
+const msShort = (n) =>
+  n == null
+    ? "—"
+    : n >= 1000
+      ? Number((n / 1000).toFixed(n >= 10000 ? 0 : 1)) + " s"
+      : Math.round(n) + " ms";
+const charts = {};
+function niceMax(v) {
+  if (!(v > 0)) return 1;
+  const p = 10 ** Math.floor(Math.log10(v)),
+    n = v / p;
+  return (n <= 1 ? 1 : n <= 2 ? 2 : n <= 2.5 ? 2.5 : n <= 5 ? 5 : 10) * p;
+}
+// Small-multiple line chart: one measure per chart, never a second y-axis.
+function lineChart(id, title, sub, series, fmt) {
+  const now = mon.data?.now || Date.now(),
+    from = now - mon.range * 1000;
+  const rows = mon.samples.filter((s) => s.t >= from);
+  charts[id] = { rows, series, fmt, from, now };
+  const values = rows.flatMap((r) => series.map((s) => s.get(r)).filter((v) => v != null));
+  const max = niceMax(Math.max(0, ...values));
+  const W = 600,
+    H = 160;
+  const x = (t) => ((t - from) / (now - from)) * W;
+  const y = (v) => H - (v / max) * H;
+  const paths = series
+    .map((s, i) => {
+      let d = "",
+        open = false;
+      for (const r of rows) {
+        const v = s.get(r);
+        if (v == null) {
+          open = false;
+          continue;
+        }
+        d += (open ? "L" : "M") + x(r.t).toFixed(1) + " " + y(v).toFixed(1);
+        open = true;
+      }
+      const area =
+        series.length === 1 && rows.length > 1 && d
+          ? `<path d="${d}L${x(rows[rows.length - 1].t).toFixed(1)} ${H}L${x(rows[0].t).toFixed(1)} ${H}Z" fill="${s.color}" opacity=".1" stroke="none"/>`
+          : "";
+      return `${area}<path d="${d}" fill="none" stroke="${s.color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>`;
+    })
+    .join("");
+  const last = rows[rows.length - 1];
+  const dots = last
+    ? series
+        .map((s) => {
+          const v = s.get(last);
+          return v == null
+            ? ""
+            : `<span class="lc-dot" data-style="left:${(x(last.t) / W) * 100}%;top:${(y(v) / H) * 100}%;background:${s.color}"></span>`;
+        })
+        .join("")
+    : "";
+  const legend =
+    series.length > 1
+      ? `<div class="lc-legend">${series.map((s) => `<span><i data-style="background:${s.color}"></i>${esc(s.name)}</span>`).join("")}</div>`
+      : "";
+  const endValue =
+    series.length === 1 && last && series[0].get(last) != null
+      ? `<strong class="lc-now">${esc(fmt(series[0].get(last)))}</strong>`
+      : "";
+  const ticks = [max, max / 2, 0]
+    .map((v, i) => `<span data-style="top:${i * 50}%">${esc(fmt(v))}</span>`)
+    .join("");
+  const minutes = mon.range / 60;
+  return `<section class="panel lc-panel"><div class="lc-head"><div><h2>${title}</h2><small>${sub}</small></div>${endValue}</div>${legend}<div class="lc" data-chart="${id}" tabindex="0" aria-label="${esc(title)} over the last ${minutes} minutes"><div class="lc-ticks">${ticks}</div><div class="lc-plot"><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true"><line x1="0" y1="0.5" x2="${W}" y2="0.5" class="lc-grid"/><line x1="0" y1="${H / 2}" x2="${W}" y2="${H / 2}" class="lc-grid"/><line x1="0" y1="${H - 0.5}" x2="${W}" y2="${H - 0.5}" class="lc-axis"/>${paths}</svg>${dots}<div class="lc-cross" hidden></div><div class="lc-tip" hidden></div>${rows.length < 2 ? '<div class="chart-empty">Collecting samples…</div>' : ""}</div></div><div class="lc-x"><span>${minutes} min ago</span><span>now</span></div></section>`;
+}
+// The dashboard CSP forbids inline style attributes; CSSOM assignments are allowed.
+function applyStyles(root) {
+  root.querySelectorAll("[data-style]").forEach((el) => (el.style.cssText = el.dataset.style));
+}
+function showTip(el, clientX) {
+  const c = charts[el.dataset.chart];
+  if (!c || !c.rows.length) return;
+  const plot = el.querySelector(".lc-plot"),
+    box = plot.getBoundingClientRect();
+  const t = c.from + ((clientX - box.left) / box.width) * (c.now - c.from);
+  let best = c.rows[0];
+  for (const r of c.rows) if (Math.abs(r.t - t) < Math.abs(best.t - t)) best = r;
+  const left = ((best.t - c.from) / (c.now - c.from)) * 100;
+  const cross = plot.querySelector(".lc-cross"),
+    tip = plot.querySelector(".lc-tip");
+  cross.hidden = tip.hidden = false;
+  cross.style.left = left + "%";
+  tip.replaceChildren();
+  const time = document.createElement("small");
+  time.textContent = new Date(best.t).toLocaleTimeString();
+  tip.append(time);
+  for (const s of c.series) {
+    const row = document.createElement("div"),
+      key = document.createElement("i"),
+      value = document.createElement("strong"),
+      name = document.createElement("span");
+    key.style.background = s.color;
+    const v = s.get(best);
+    value.textContent = v == null ? "—" : c.fmt(v);
+    name.textContent = s.name;
+    row.append(key, value, name);
+    tip.append(row);
+  }
+  tip.style.left = left > 60 ? "auto" : left + 2 + "%";
+  tip.style.right = left > 60 ? 100 - left + 2 + "%" : "auto";
+}
+function hideTip(el) {
+  el.querySelectorAll(".lc-cross,.lc-tip").forEach((n) => (n.hidden = true));
+}
+async function loadMetrics() {
+  const r = await api("/metrics?since=" + mon.last);
+  mon.data = r;
+  if (r.samples.length) {
+    mon.samples.push(...r.samples);
+    mon.last = r.samples[r.samples.length - 1].t;
+  }
+  const keep = r.now - 3600 * 1000;
+  mon.samples = mon.samples.filter((s) => s.t >= keep);
+}
+const GREEN = "#1f8f63",
+  ORANGE = "#d97a2a";
+function monitorBody() {
+  const d = mon.data,
+    c = d.current || {},
+    s = d.summary;
+  const tiles = `<div class="stats stats5"><div class="stat featured"><div class="stat-top">Gateway CPU ${icon("cpu")}</div><div class="stat-value">${vcpu(c.cpu_core)}</div><div class="stat-foot">${fixed(c.cpu)}% of this ${d.cpu_count}-core server · server total ${fixed(c.sys_cpu, 0)}%</div></div><div class="stat"><div class="stat-top">Gateway memory ${icon("memory")}</div><div class="stat-value">${fmtMib(c.rss)}</div><div class="stat-foot">Server RAM ${fmtMib(c.sys_used)} of ${fmtMib(c.sys_total)} used</div></div><div class="stat"><div class="stat-top">Open requests ${icon("pulse")}</div><div class="stat-value">${num(d.active)}</div><div class="stat-foot">${num(c.slots)} of ${num(d.max_concurrent)} model slots in use</div></div><div class="stat"><div class="stat-top">Throughput ${icon("arrow")}</div><div class="stat-value">${fixed(c.rps, 2)}<small> req/s</small></div><div class="stat-foot">${num(c.err)} errors · ${num(c.rej)} rejected (last 5 s)</div></div><div class="stat"><div class="stat-top">Response time p95 ${icon("clock")}</div><div class="stat-value">${ms(c.p95)}</div><div class="stat-foot">First token p95 ${ms(c.ttft95)}</div></div></div>`;
+  const rows = [
+    ["Measured for", duration(s.seconds) + " · " + num(s.samples) + " samples"],
+    ["Gateway CPU avg / peak", `${vcpu(s.cpu_core_avg)} / ${vcpu(s.cpu_core_max)}`],
+    ["Gateway memory start / peak", `${fmtMib(s.rss_first)} / ${fmtMib(s.rss_max)}`],
+    ["Server RAM peak (all programs)", fmtMib(s.sys_used_max)],
+    ["Peak open requests", num(s.active_max)],
+    ["Peak model slots", `${num(s.slots_max)} of ${num(d.max_concurrent)}`],
+    ["Requests · average rate", `${num(s.requests)} · ${fixed(s.rps, 2)} req/s`],
+    ["Errors · rejected at limit", `${num(s.errors)} · ${num(s.rejected)}`],
+    ["Response time p50 / p95 / p99", `${ms(s.p50)} / ${ms(s.p95)} / ${ms(s.p99)}`],
+    ["First token p50 / p95 / p99", `${ms(s.ttft50)} / ${ms(s.ttft95)} / ${ms(s.ttft99)}`],
+    ["Peak database write queue", num(s.db_queue_max)],
+  ];
+  const summary = `<section class="panel"><div class="panelhead"><h2>Measurement since ${esc(new Date(s.since).toLocaleTimeString())}</h2><small>Reset before a load test to measure only that run</small></div><div class="settings-list monitor-summary">${rows.map(([k, v]) => `<div><span>${esc(k)}</span><strong>${esc(v)}</strong></div>`).join("")}</div></section>`;
+  const grid = `<div class="lc-grid-wrap">${[
+    lineChart("cpu", "Gateway CPU", "Percent of one core · 100% = 1 vCPU", [{ name: "CPU", color: GREEN, get: (r) => r.cpu_core }], (v) => fixed(v) + "%"),
+    lineChart("rss", "Gateway memory", "Resident memory in MiB", [{ name: "Memory", color: GREEN, get: (r) => mib(r.rss) }], (v) => fixed(v) + " MiB"),
+    lineChart("active", "Open requests", "Peak simultaneous API requests per 5 s", [{ name: "Open requests", color: GREEN, get: (r) => r.active_max }], (v) => fixed(v, 0)),
+    lineChart("rps", "Throughput", "Completed API requests per second", [{ name: "Requests/s", color: GREEN, get: (r) => r.rps }], (v) => fixed(v, 2)),
+    lineChart("latency", "Response time", "Full model response, including streaming", [
+      { name: "p50", color: GREEN, get: (r) => r.p50 },
+      { name: "p95", color: ORANGE, get: (r) => r.p95 },
+    ], msShort),
+    lineChart("ttft", "Time to first token", "How long users wait for the first word", [
+      { name: "p50", color: GREEN, get: (r) => r.ttft50 },
+      { name: "p95", color: ORANGE, get: (r) => r.ttft95 },
+    ], msShort),
+  ].join("")}</div>`;
+  const recent = mon.samples.slice(-24).reverse();
+  const tableView = `<details class="panel spacer"><summary>Recent samples table</summary><div class="tablewrap"><table><thead><tr><th>Time</th><th>CPU (1 core)</th><th>Memory</th><th>Open</th><th>Slots</th><th>Req/s</th><th>Errors</th><th>Rejected</th><th>p50</th><th>p95</th><th>First token p95</th></tr></thead><tbody>${recent.map((r) => `<tr><td>${esc(new Date(r.t).toLocaleTimeString())}</td><td>${fixed(r.cpu_core)}%</td><td>${fmtMib(r.rss)}</td><td>${r.active_max}</td><td>${r.slots}</td><td>${fixed(r.rps, 2)}</td><td>${r.err}</td><td>${r.rej}</td><td>${ms(r.p50)}</td><td>${ms(r.p95)}</td><td>${ms(r.ttft95)}</td></tr>`).join("")}</tbody></table></div></details>`;
+  return tiles + summary + grid + tableView;
+}
+async function monitorPage() {
+  await loadMetrics();
+  $("#content").innerHTML =
+    heading(
+      "Server monitor",
+      "Live gateway CPU, memory, and request performance, sampled every 5 seconds. A summary is also written to data/server.log every minute.",
+      `<div class="filters inline"><select id="monitor-range" aria-label="Time range">${[
+        [5, "Last 5 minutes"],
+        [15, "Last 15 minutes"],
+        [60, "Last hour"],
+      ]
+        .map(([m, l]) => `<option value="${m * 60}" ${mon.range === m * 60 ? "selected" : ""}>${l}</option>`)
+        .join("")}</select></div><button class="btn" data-action="metrics-csv">${icon("download")}CSV</button><button class="btn" data-action="metrics-reset">Reset measurement</button>`,
+    ) + `<div id="monitor-body">${monitorBody()}</div>`;
+  applyStyles($("#monitor-body"));
+}
+async function refreshMonitor() {
+  await loadMetrics();
+  const body = $("#monitor-body");
+  if (!body) return;
+  const open = body.querySelector("details")?.open;
+  body.innerHTML = monitorBody();
+  applyStyles(body);
+  if (open) body.querySelector("details").open = true;
+  const hovered = mon.hover && body.querySelector(`.lc[data-chart="${mon.hover.id}"]`);
+  if (hovered) showTip(hovered, mon.hover.x);
+}
 async function navigate(next = tab) {
   tab = next;
   shell();
@@ -302,6 +504,7 @@ async function navigate(next = tab) {
     status.innerHTML = `<span class="dot"></span>${cache.settings.upstream_configured ? "Go key configured" : "Go key required"}`;
     status.classList.toggle("needs-setup", !cache.settings.upstream_configured);
     if (tab === "overview") await overview();
+    else if (tab === "monitor") await monitorPage();
     else if (tab === "keys") await keysPage();
     else if (tab === "logs") await logsPage();
     else if (tab === "models") modelsPage();
@@ -355,6 +558,26 @@ async function action(name, el) {
       cache.models = null;
       toast(`Reloaded ${r.models} models`);
       await navigate();
+      break;
+    }
+    case "metrics-reset":
+      if (!confirm("Start a new measurement? Peaks and percentiles restart from now; the charts keep their history.")) return;
+      await api("/metrics/reset", { method: "POST", body: "{}" });
+      toast("Measurement restarted");
+      await refreshMonitor();
+      break;
+    case "metrics-csv": {
+      const cols = ["t", "cpu_core", "cpu", "sys_cpu", "rss", "sys_used", "sys_total", "active", "active_max", "slots", "db_queue", "req", "rps", "err", "rej", "p50", "p95", "max", "ttft50", "ttft95"];
+      const lines = [["time_utc", ...cols.slice(1)].join(",")].concat(
+        mon.samples.map((r) => [new Date(r.t).toISOString(), ...cols.slice(1).map((c) => r[c] ?? "")].join(",")),
+      );
+      const url = URL.createObjectURL(new Blob([lines.join("\n") + "\n"], { type: "text/csv" })),
+        a = document.createElement("a");
+      a.href = url;
+      a.download = "go-router-performance.csv";
+      a.click();
+      URL.revokeObjectURL(url);
+      toast(`Exported ${mon.samples.length} samples`);
       break;
     }
     case "export": {
@@ -495,6 +718,10 @@ document.addEventListener("change", async (e) => {
       page = 1;
       await logsPage();
     }
+    if (e.target.id === "monitor-range") {
+      mon.range = Number(e.target.value);
+      await refreshMonitor();
+    }
     if (e.target.id === "filter-errors") {
       logErrors = e.target.checked;
       page = 1;
@@ -509,6 +736,20 @@ document.addEventListener("input", (e) => {
     modelSearch = e.target.value;
     renderModels();
   }
+});
+document.addEventListener("pointermove", (e) => {
+  const el = e.target.closest?.(".lc");
+  document.querySelectorAll(".lc").forEach((c) => c !== el && hideTip(c));
+  mon.hover = el ? { id: el.dataset.chart, x: e.clientX } : null;
+  if (el) showTip(el, e.clientX);
+});
+document.addEventListener("focusin", (e) => {
+  const el = e.target.closest?.(".lc");
+  if (el) showTip(el, el.querySelector(".lc-plot").getBoundingClientRect().right);
+});
+document.addEventListener("focusout", (e) => {
+  const el = e.target.closest?.(".lc");
+  if (el) hideTip(el);
 });
 $("#modal").addEventListener("click", (e) => {
   if (e.target === $("#modal")) {
@@ -531,6 +772,9 @@ async function boot() {
     loginPage();
   }
 }
+setInterval(() => {
+  if (csrf && !document.hidden && tab === "monitor") refreshMonitor().catch(() => {});
+}, 5000);
 setInterval(() => {
   if (
     csrf &&

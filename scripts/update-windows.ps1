@@ -1,6 +1,6 @@
 #Requires -RunAsAdministrator
 # Update only the executable; preserve .env, the database, login file, and Caddy.
-param([string]$Version = 'v0.2.0')
+param([string]$Version = 'v0.3.0')
 $ErrorActionPreference = 'Stop'
 if ($Version -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+$') { throw 'Version must look like v0.2.0.' }
 $root = Split-Path -Parent $PSScriptRoot

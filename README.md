@@ -36,6 +36,9 @@ Client keys are separate and can be revoked individually.
 - A single admin dashboard: create/edit/revoke/expire keys, model scopes, per-key
   request limits, lifetime usage/cost totals, request logs, filters, export, model
   catalog, and admin audit events.
+- A live server monitor in the dashboard: gateway CPU and memory, open requests,
+  throughput, response time and time to first token, with a per-minute summary in
+  the server log and a concurrent-chat load test (`tests/loadtest.py`).
 - Actual cash cost, list-price value, and Go allowance consumption shown separately.
 - Bounded payload logging, media redaction, detailed log retention, and durable
   accounting totals that survive detailed-log cleanup.
@@ -88,8 +91,8 @@ A release package contains the binary, catalog, and documentation. It needs no R
 compiler. For Linux x86_64 with glibc 2.34+ (for example Debian 12 or Ubuntu 22.04+):
 
 ```bash
-curl -fLO https://github.com/AhmedDatori/openrouter-from-opencode/releases/download/v0.2.0/go-router-linux-x86_64.tar.gz
-curl -fLO https://github.com/AhmedDatori/openrouter-from-opencode/releases/download/v0.2.0/go-router-linux-x86_64.tar.gz.sha256
+curl -fLO https://github.com/AhmedDatori/openrouter-from-opencode/releases/download/v0.3.0/go-router-linux-x86_64.tar.gz
+curl -fLO https://github.com/AhmedDatori/openrouter-from-opencode/releases/download/v0.3.0/go-router-linux-x86_64.tar.gz.sha256
 sha256sum -c go-router-linux-x86_64.tar.gz.sha256
 tar xzf go-router-linux-x86_64.tar.gz
 cd go-router

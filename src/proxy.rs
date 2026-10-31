@@ -137,6 +137,7 @@ async fn handle(app: App, ctx: Context, req: Request, kind: Kind) -> ApiResult<R
         ));
     }
     let permit = app.slots.clone().try_acquire_owned().map_err(|_| {
+        app.metrics.rejected();
         let mut e = ApiError::new(429, "Gateway concurrency limit reached");
         e.retry_after = Some("1".into());
         e

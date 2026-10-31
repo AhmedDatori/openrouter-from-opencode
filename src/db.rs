@@ -4,7 +4,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{
     path::Path,
-    sync::{Arc, mpsc},
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering::Relaxed},
+        mpsc,
+    },
 };
 use tokio::sync::oneshot;
 
@@ -12,6 +16,7 @@ type Job = Box<dyn FnOnce(&mut Connection) + Send + 'static>;
 #[derive(Clone)]
 pub struct Db {
     sender: Arc<mpsc::Sender<Job>>,
+    pending: Arc<AtomicUsize>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Key {
@@ -111,15 +116,29 @@ impl Db {
           CREATE TABLE IF NOT EXISTS gateway_secrets(name TEXT PRIMARY KEY, value TEXT NOT NULL);
           PRAGMA user_version=1;")?;
         let (tx, rx) = mpsc::channel::<Job>();
+        let pending = Arc::new(AtomicUsize::new(0));
+        let done = pending.clone();
         std::thread::Builder::new()
             .name("sqlite".into())
             .spawn(move || {
                 for job in rx {
-                    job(&mut conn)
+                    job(&mut conn);
+                    done.fetch_sub(1, Relaxed);
                 }
             })?;
         Ok(Self {
             sender: Arc::new(tx),
+            pending,
+        })
+    }
+    /// Database jobs queued or running; a growing value means storage is the bottleneck.
+    pub fn queue_depth(&self) -> usize {
+        self.pending.load(Relaxed)
+    }
+    fn send(&self, job: Job) -> Result<(), mpsc::SendError<Job>> {
+        self.pending.fetch_add(1, Relaxed);
+        self.sender.send(job).inspect_err(|_| {
+            self.pending.fetch_sub(1, Relaxed);
         })
     }
     pub async fn call<T: Send + 'static>(
@@ -127,15 +146,14 @@ impl Db {
         f: impl FnOnce(&mut Connection) -> Result<T> + Send + 'static,
     ) -> Result<T> {
         let (tx, rx) = oneshot::channel();
-        self.sender
-            .send(Box::new(move |conn| {
-                let _ = tx.send(f(conn));
-            }))
-            .map_err(|_| anyhow::anyhow!("Database worker stopped"))?;
+        self.send(Box::new(move |conn| {
+            let _ = tx.send(f(conn));
+        }))
+        .map_err(|_| anyhow::anyhow!("Database worker stopped"))?;
         rx.await.context("Database worker response")?
     }
     pub fn save_log(&self, log: Log) {
-        let _ = self.sender.send(Box::new(move |c| {
+        let _ = self.send(Box::new(move |c| {
             let result = (|| -> Result<()> {
                 let (cash, list, allowance) = log.costs();
                 let usage = log.usage.as_ref();

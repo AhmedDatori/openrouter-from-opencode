@@ -393,3 +393,25 @@ pub async fn remove_upstream_key(
     };
     Ok(Json(json!({"ok":true,"upstream_configured":false})))
 }
+
+pub async fn metrics(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> ApiResult<Json<Value>> {
+    auth::admin(&app, &headers, false).await?;
+    let since = q.get("since").and_then(|s| s.parse().ok()).unwrap_or(0);
+    let mut v = app.metrics.snapshot(since);
+    v["max_concurrent"] = json!(app.cfg.max_concurrent);
+    Ok(Json(v))
+}
+
+pub async fn reset_metrics(State(app): State<App>, headers: HeaderMap) -> ApiResult<Json<Value>> {
+    auth::admin(&app, &headers, true).await?;
+    app.metrics.reset();
+    app.db
+        .event("metrics_reset", json!({}))
+        .await
+        .map_err(ApiError::internal)?;
+    Ok(Json(json!({"ok":true})))
+}

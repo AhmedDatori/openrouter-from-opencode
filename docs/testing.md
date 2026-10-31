@@ -130,6 +130,50 @@ python3 tests/benchmark.py --docker-image go-router:test
 Actual network/model latency dominates typical inference calls. The gateway does no
 local model inference, transcription, OCR, tokenization, or GPU work.
 
+## Server monitor and concurrent chat load test (v0.3.0)
+
+The dashboard **Server monitor** tab samples the gateway every 5 seconds and keeps
+one hour in memory. It shows process CPU (100% = one vCPU), resident memory (the
+working set on Windows), open requests, model slots in use, throughput, errors,
+requests rejected at `MAX_CONCURRENT_REQUESTS`, response time and time to first token
+(p50/p95), and the SQLite write queue. **Reset measurement** restarts the peak and
+percentile summary, so one test run can be read on its own. **CSV** downloads the
+samples. The same summary is written to stdout (`data/server.log` on Windows) once a
+minute while traffic flows and every 15 minutes when idle. Sampling costs about 1 ms
+of CPU every 5 seconds.
+
+`tests/loadtest.py` simulates users holding multi-turn streamed conversations. Each
+one sends a message, reads the reply for 3–10 seconds, then continues with the last six
+turns of history. It reports client-side latency, errors and tokens. With an admin
+password it also resets and reads the server monitor.
+
+```bash
+# Offline: local release binary + simulated model (0.6 s to first token, 60 tokens/s)
+cargo build --release --locked
+python3 tests/loadtest.py --mock --users 50 --duration 300
+
+# Real gateway. Uses Go allowance. Use a key with rate limit 0 and set
+# MAX_CONCURRENT_REQUESTS above the expected open requests (64 for 50 users).
+GATEWAY_KEY=sk-gr-... GATEWAY_ADMIN_PASSWORD=... \
+  python3 tests/loadtest.py --url https://gateway.example.com --users 50 --duration 300
+```
+
+Offline result on 31 October 2026 (Linux, 20-core development machine, release build,
+full payload logging, simulated model): 50 users for 5 minutes.
+
+| Measurement | Result |
+|---|---:|
+| Chats completed / failed | 1,356 / 0 |
+| Peak open requests | 33 |
+| Gateway CPU average / peak | 5.8% / 9.8% of one core |
+| Gateway memory start / peak | 36.0 / 57.2 MiB |
+| Response time p50 / p95 (simulated model) | 4.37 / 5.75 s |
+| Gateway-added latency (client p50 − gateway p50) | about 1 ms |
+| Peak SQLite write queue | 0 |
+
+The simulated model sets the response times. A real model run on the deployment
+server measures that server's CPU, network and TLS costs.
+
 ## GitHub hosted runners
 
 The initial private-repository CI run could not start either job. GitHub reported:

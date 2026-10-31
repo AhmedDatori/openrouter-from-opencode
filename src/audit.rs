@@ -1,4 +1,8 @@
-use crate::{App, db::Log};
+use crate::{
+    App,
+    db::Log,
+    metrics::{Active, Metrics},
+};
 use axum::{
     body::Body,
     extract::{Request, State},
@@ -34,6 +38,7 @@ struct Guard {
     complete: bool,
     capture: Vec<u8>,
     capture_body: bool,
+    _active: Active,
 }
 impl Drop for Guard {
     fn drop(&mut self) {
@@ -55,10 +60,17 @@ impl Drop for Guard {
                 }
             })
         }
+        self.app.metrics.finish(
+            r.kind == "inference",
+            r.status >= 400 || r.outcome != "completed",
+            r.duration_ms,
+            r.first_token_ms,
+        );
         self.app.db.save_log(r);
     }
 }
 pub async fn middleware(State(app): State<App>, mut req: Request, next: Next) -> Response {
+    let active = Metrics::start(&app);
     let path = req.uri().path().to_string();
     let method = req.method().to_string();
     let mut record = Log::new(
@@ -104,6 +116,7 @@ pub async fn middleware(State(app): State<App>, mut req: Request, next: Next) ->
         complete: false,
         capture: vec![],
         capture_body: capture,
+        _active: active,
     };
     let stream = async_stream::stream! {
         let mut guard=guard;let mut stream=body.into_data_stream();
