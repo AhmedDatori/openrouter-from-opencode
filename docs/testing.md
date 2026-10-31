@@ -174,6 +174,26 @@ full payload logging, simulated model): 50 users for 5 minutes.
 The simulated model sets the response times. A real model run on the deployment
 server measures that server's CPU, network and TLS costs.
 
+Real run on 31 October 2026: the Windows deployment (v0.3.0, `MAX_CONCURRENT_REQUESTS=64`,
+full payload logging) behind Caddy HTTPS, DeepSeek V4.1 Flash through OpenCode Go,
+50 users for 5 minutes, driven from a remote client. Gateway figures are the
+`go-router.exe` process only; Caddy's TLS work is not included.
+
+| Measurement | Result |
+|---|---:|
+| Chats completed / failed | 1,315 / 0 (4.1 chats/s) |
+| Peak open requests / rejected at limit | 32 / 0 |
+| Gateway CPU average / peak | 8.7% / 13.4% of one core |
+| Gateway memory start / peak | 18.3 / 30.6 MiB |
+| Response time p50 / p95 at the gateway | 4.54 / 7.02 s |
+| First token p50 / p95 at the gateway | 2.82 / 4.56 s |
+| Tokens in / out | 888,030 / 222,047 |
+| Cash charged | $0.00 |
+| Go allowance used / list value | $0.157 / $0.262 |
+| Allowance per 1,000 chats | $0.12 |
+
+Receipts and the dashboard ledger matched exactly. Model time dominated latency.
+
 ## GitHub hosted runners
 
 The initial private-repository CI run could not start either job. GitHub reported:
