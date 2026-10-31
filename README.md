@@ -45,7 +45,7 @@ Client keys are separate and can be revoked individually.
 ## Quick start with Docker
 
 On **Windows Server**, use the native ZIP package and the
-[Windows deployment guide](docs/windows.md). No Docker or compiler is required;
+[public Windows deployment guide](docs/windows-public.md). No Docker or compiler is required;
 PowerShell helpers configure private credentials and an automatic startup task.
 
 Requirements: Docker Engine, Compose plugin, an active Go subscription and API key.

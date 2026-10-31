@@ -1,5 +1,9 @@
 # Windows Server: first deployment from an Arch/Linux client
 
+For a **public URL that other people can use directly**, follow
+[Public HTTPS on Windows](windows-public.md). This page describes a private
+tunnel test only; your computer must remain connected for that test.
+
 The `go-router-windows-x86_64.zip` package contains a native Windows executable,
 the model catalog, setup scripts, and documentation. No Rust, Docker, Python,
 Node, OpenCode CLI, GPU, or separate database is required on the server.
