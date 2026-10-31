@@ -1,5 +1,8 @@
 # Deploying on a server
 
+For a native Windows Server deployment and a first connection from Linux, see
+[the Windows setup guide](windows.md).
+
 ## Sizing
 
 Use a small Linux VPS with one CPU core and **512 MiB RAM** as a practical starting

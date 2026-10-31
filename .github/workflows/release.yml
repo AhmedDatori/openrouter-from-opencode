@@ -5,6 +5,31 @@ on:
 permissions:
   contents: write
 jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        run: rustup toolchain install 1.88 --profile minimal
+      - name: Test and build
+        run: |
+          cargo +1.88 test --locked
+          cargo +1.88 build --locked --release
+      - name: Package Windows executable
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path package/go-router -Force | Out-Null
+          Copy-Item target/release/go-router.exe package/go-router/
+          Copy-Item -Recurse config,deploy,scripts,docs,examples package/go-router/
+          Copy-Item README.md,LICENSE,.env.example package/go-router/
+          Compress-Archive -Path package/go-router -DestinationPath go-router-windows-x86_64.zip
+          $hash = (Get-FileHash go-router-windows-x86_64.zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          Set-Content go-router-windows-x86_64.zip.sha256 "$hash  go-router-windows-x86_64.zip" -Encoding ascii
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            go-router-windows-x86_64.zip
+            go-router-windows-x86_64.zip.sha256
   linux:
     strategy:
       matrix:
