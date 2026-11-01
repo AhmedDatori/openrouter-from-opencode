@@ -174,6 +174,25 @@ allowances, privacy settings, availability, and upstream intended-use conditions
 
 ## Operations
 
+### Move an IP installation to a domain
+
+First create a DNS A record that points the hostname at the server's public IPv4
+address. Then use Administrator PowerShell:
+
+```powershell
+Set-Location C:\go-router
+git pull --ff-only
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\set-domain-windows.ps1 -Domain api.example.com -NewPassword
+```
+
+The script rewrites the Caddyfile for the hostname and keeps the HTTPS-only
+challenge mode if the installation used it. It updates `PUBLIC_URL` and
+`data\admin-login.txt`, restarts Caddy and the gateway, and waits for
+`https://<domain>/healthz`. Caddy then serves a certificate only for the
+hostname, so `https://<ip>` stops working, and clients must switch to the new
+URL. `-NewPassword` replaces the dashboard password. Omit it to keep the current
+password. Backups of the previous Caddyfile and `.env` are written to `data\`.
+
 ### Upgrade to the server monitor (v0.3.0)
 
 Use Administrator PowerShell:
