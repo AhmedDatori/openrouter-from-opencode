@@ -33,7 +33,9 @@ remember a conversation's missing turns for you. For model fallbacks:
 }
 ```
 
-Fallback occurs only before a downstream response starts. An upstream authentication
+Fallback occurs only when a model fails before answering (connection error, timeout,
+or an error status). Once a model has accepted the request, it is never retried on
+another model, so a request is not billed twice. An upstream authentication
 or payment error stops routing. Once streaming starts, failures are in-band events.
 At most eight model candidates are allowed. API-key model scopes are enforced on
 all candidates. No request is rerouted to a non-Go provider.

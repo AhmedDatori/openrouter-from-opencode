@@ -66,7 +66,11 @@ impl Drop for Guard {
             r.duration_ms,
             r.first_token_ms,
         );
-        self.app.db.save_log(r);
+        // Requests without a valid key are counted in metrics only; persisting them would
+        // let anonymous traffic grow the database and distort usage totals.
+        if r.key_id.is_some() {
+            self.app.db.save_log(r);
+        }
     }
 }
 pub async fn middleware(State(app): State<App>, mut req: Request, next: Next) -> Response {

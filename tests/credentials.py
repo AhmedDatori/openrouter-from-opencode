@@ -151,7 +151,7 @@ class Credentials(unittest.TestCase):
             result = subprocess.run(['python3', str(root / 'scripts/setup.py')], input='',
                                     capture_output=True, text=True, timeout=5)
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertIn('OPENCODE_GO_API_KEY=""', (root / '.env').read_text())
+            self.assertRegex((root / '.env').read_text(), r'(?m)^OPENCODE_GO_API_KEY=$')
             env = {**os.environ, 'MODEL_CATALOG_PATH': str(ROOT / 'config/models.json')}
             env.pop('ADMIN_PASSWORD', None)
             env.pop('OPENCODE_GO_API_KEY', None)

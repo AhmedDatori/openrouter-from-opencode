@@ -1,262 +1,124 @@
-# OpenRouter from OpenCode
+# Go Router: OpenRouter-compatible gateway for OpenCode Go
 
-A small Rust gateway that exposes **OpenRouter-compatible inference endpoints** using
-an **OpenCode Go** subscription. One binary, one SQLite database, one admin dashboard.
-No GPU, local model, Redis, PostgreSQL, Node.js runtime, or OpenCode CLI required.
-
-Connect an existing client by changing its **base URL**, **API key**, and, if needed,
-its **model ID** to one available in your Go plan:
+Go Router lets your applications use an **OpenCode Go** subscription through the
+**OpenRouter API**. Apps switch by changing three values:
 
 ```text
-Base URL: https://your-domain.example/api/v1
-API key:  create one in /admin
-Models:   GET /api/v1/models
+Base URL: https://your-domain/api/v1
+API key:  a gateway key created in the dashboard (sk-gr-...)
+Model:    deepseek/deepseek-v4.1-flash   (any ID from /api/v1/models)
 ```
 
-The `/v1` prefix is also supported. Your upstream Go key stays on the server.
-Client keys are separate and can be revoked individually.
+It is one small Rust program with a built-in SQLite database and admin dashboard.
+The models run at OpenCode, so the server needs no GPU: in a 50-user load test
+the gateway used about 30 MiB of RAM and 9% of one CPU core.
 
-> Compatibility covers inference APIs, not every hosted OpenRouter product.
-> OpenRouter's hosted search/plugins, credits/payments, embeddings, batches,
-> image/video generation, files storage, and stateful Responses are explicit
-> unsupported operations. See the [compatibility matrix](docs/compatibility.md).
-> Model availability and the Go workspace's permissions still apply.
-
-## What is included
-
-- Chat Completions: JSON and SSE, tools, tool-result history, structured output
-  schemas, sampling parameters, reasoning effort, images, and model fallbacks.
-- Native Responses and Anthropic Messages request/stream forwarding, subject to
-  upstream support; full conversation input is required for Responses.
-- Audio/video/PDF input passthrough when the selected Go model and its API adapter
-  support it. No local transcription, OCR, or media model is installed.
-- OpenRouter-shaped model catalog, model aliases, provider/model metadata,
-  key introspection, generation lookup, numeric chat errors, native error skins,
-  `Retry-After`, heartbeat comments, usage chunks, and `[DONE]` framing.
-- A single admin dashboard: create/edit/revoke/expire keys, model scopes, per-key
-  request limits, lifetime usage/cost totals, request logs, filters, export, model
-  catalog, and admin audit events.
-- A live server monitor in the dashboard: gateway CPU and memory, open requests,
-  throughput, response time and time to first token, with a per-minute summary in
-  the server log and a concurrent-chat load test (`tests/loadtest.py`).
-- Actual cash cost, list-price value, and Go allowance consumption shown separately.
-- Bounded payload logging, media redaction, detailed log retention, and durable
-  accounting totals that survive detailed-log cleanup.
-- Docker/Compose with optional HTTPS, systemd, CI tests, release packaging, and
-  setup instructions for x86_64 and ARM64 servers.
-
-## Quick start with Docker
-
-On **Windows Server**, use the native ZIP package and the
-[public Windows deployment guide](docs/windows-public.md). No Docker or compiler is required;
-PowerShell helpers configure private credentials and an automatic startup task.
-
-Requirements: Docker Engine, Compose plugin, an active Go subscription and API key.
-Python 3 is used only by the optional setup helper. You can edit `.env` manually.
-
-```bash
-git clone https://github.com/AhmedDatori/openrouter-from-opencode.git go-router
-cd go-router
-python3 scripts/setup.py
-docker compose up -d --build gateway
+```mermaid
+flowchart LR
+    Apps["Your apps"] -- "gateway key" --> Caddy["Caddy (HTTPS)"] --> GW["go-router"] -- "your Go key" --> Go["OpenCode Go"]
+    GW --- DB[("SQLite")]
 ```
 
-The public repository and release downloads require no GitHub sign-in. The helper
-generates a strong admin password and creates
-`.env` with mode `600`. It does not print credentials or overwrite an existing file.
+## Features
 
-Open **http://localhost:8080/admin**. Read your generated login information locally
-from `data/admin-login.txt`, sign in, and open **Setup & settings** to save your
-OpenCode Go API key. It takes effect immediately. Then create your first application API key.
-The host-side login file is private setup output; container database storage uses
-its own named volume. Do not commit or share either.
+- **OpenRouter-compatible API:** chat completions (JSON and streaming), tools,
+  structured output, reasoning, images, audio and PDF input, model fallbacks, plus
+  native Responses and Anthropic Messages endpoints. Works with the OpenAI and
+  OpenRouter SDKs.
+- **Separate keys per app:** each with its own expiry, rate limit and allowed models.
+  Your OpenCode Go key never leaves the server.
+- **Dashboard:** keys, request logs, cash cost vs. Go allowance per request, model
+  catalog, admin audit log and a live **Server monitor** (CPU, memory, latency).
+- **Secure defaults:** HTTPS through Caddy, gateway on `127.0.0.1` only, hashed keys,
+  Argon2 admin password, CSRF and origin checks, strict CSP.
 
-For a remote server, initially use an SSH tunnel:
+Not included: OpenRouter's non-Go models, credits and payments, embeddings, image
+generation, file storage and other hosted platform features. These return `501`.
+See the [compatibility matrix](docs/compatibility.md).
 
-```bash
-ssh -L 8080:127.0.0.1:8080 your-user@your-server
-```
+## Set up a server
 
-Then visit `http://localhost:8080/admin`. For a public HTTPS URL, follow
-[server deployment](docs/deployment.md#https-with-caddy).
+| Server | Guide | Time |
+|---|---|---|
+| **Windows Server 2019+** | [docs/setup-windows.md](docs/setup-windows.md): Git, then one install script | ~15 min |
+| **Ubuntu 22.04+ / Debian 12+** | [docs/setup-linux.md](docs/setup-linux.md): release binary, systemd, Caddy (or Docker) | ~15 min |
 
-```bash
-docker compose logs -f gateway
-docker compose exec gateway /app/go-router --healthcheck
-```
+You need a domain with a DNS A record pointing to the server, inbound TCP 443
+(and usually 80) open, and an OpenCode Go API key. Nothing is compiled on the server.
 
-## Run a binary or build from source
+After installing: sign in at `https://your-domain/admin`, save the Go key in
+**Setup & settings**, and create one **API key** per application.
 
-A release package contains the binary, catalog, and documentation. It needs no Rust
-compiler. For Linux x86_64 with glibc 2.34+ (for example Debian 12 or Ubuntu 22.04+):
-
-```bash
-curl -fLO https://github.com/AhmedDatori/openrouter-from-opencode/releases/download/v0.3.0/go-router-linux-x86_64.tar.gz
-curl -fLO https://github.com/AhmedDatori/openrouter-from-opencode/releases/download/v0.3.0/go-router-linux-x86_64.tar.gz.sha256
-sha256sum -c go-router-linux-x86_64.tar.gz.sha256
-tar xzf go-router-linux-x86_64.tar.gz
-cd go-router
-python3 scripts/setup.py
-./go-router --check
-./go-router
-```
-
-Release downloads are public. You can also download the archive in your browser
-and copy it to the server. ARM64 can build
-the Dockerfile/source natively; the release workflow includes an ARM64 build job.
-
-For source builds, install Rust **1.88+** and a C compiler for bundled SQLite:
-
-```bash
-# Debian/Ubuntu, for building only:
-sudo apt-get update
-sudo apt-get install -y build-essential pkg-config
-# Install Rust from https://rustup.rs if it is not already installed.
-cargo build --release --locked
-python3 scripts/setup.py
-./target/release/go-router --check
-./target/release/go-router
-```
-
-Start the binary **from the project/package directory** so `.env` and
-`config/models.json` resolve correctly. Use a system service for unattended operation.
-See [systemd setup](docs/deployment.md#systemd-with-a-native-binary).
-
-A small runtime server does not have to compile Rust: build on another machine,
-use Docker, or download a release produced by the included GitHub workflow.
-
-## Use an existing backend
-
-### Python / OpenAI-compatible client
+## Use it from an application
 
 ```python
 import os
 from openai import OpenAI
 
 client = OpenAI(
-    base_url=os.environ["GATEWAY_BASE_URL"],  # https://your-domain/api/v1
-    api_key=os.environ["GATEWAY_API_KEY"],   # a key created in this dashboard
+    base_url="https://your-domain/api/v1",
+    api_key=os.environ["GATEWAY_API_KEY"],   # a gateway key, never the Go key
 )
-response = client.chat.completions.create(
+reply = client.chat.completions.create(
     model="deepseek/deepseek-v4.1-flash",
     messages=[{"role": "user", "content": "Hello"}],
-    stream=True,
 )
-for event in response:
-    if event.choices:
-        print(event.choices[0].delta.content or "", end="")
+print(reply.choices[0].message.content)
 ```
-
-### JavaScript
-
-```javascript
-import OpenAI from "openai";
-
-const client = new OpenAI({
-  baseURL: process.env.GATEWAY_BASE_URL,
-  apiKey: process.env.GATEWAY_API_KEY,
-});
-const response = await client.chat.completions.create({
-  model: "deepseek/deepseek-v4.1-flash",
-  messages: [{ role: "user", content: "Hello" }],
-});
-console.log(response.choices[0].message.content);
-```
-
-### HTTP
 
 ```bash
-curl "$GATEWAY_BASE_URL/chat/completions" \
+curl https://your-domain/api/v1/chat/completions \
   -H "Authorization: Bearer $GATEWAY_API_KEY" \
   -H "Content-Type: application/json" \
-  -H "x-opencode-session: your-stable-conversation-id" \
   -d '{"model":"deepseek/deepseek-v4.1-flash","messages":[{"role":"user","content":"Hello"}],"stream":true}'
 ```
 
-A stable `x-opencode-session` per conversation improves upstream routing and caching.
-If omitted, the gateway derives a key-scoped routing ID from the first user message.
-This header does not store model history: send your messages/tool results each turn.
+Send the full conversation in `messages` on every request; the gateway does not
+store chat history. An optional `x-opencode-session` header with a stable ID per
+conversation improves upstream caching. More in the [API guide](docs/api.md) and
+[examples](examples/).
 
-[More examples](examples/) · [API reference](docs/api.md) ·
-[Compatibility](docs/compatibility.md) · [Operations](docs/deployment.md) ·
-[Security](SECURITY.md) · [Tests and measurements](docs/testing.md)
+## Costs
 
-## Models
+Every answer includes OpenCode's receipt in `usage`:
 
-The reviewed catalog starts with 30 Go models, including DeepSeek, GLM, Qwen, Kimi,
-MiMo, MiniMax, GPT Luna, Haiku, Gemini, and the Go free routes. The catalog includes
-input modalities, context limits, list prices, and privacy flags. Go may restrict
-some entries by region, quota, or workspace privacy settings.
+- `cost`: extra cash actually charged (usually `$0` on the Go plan).
+- `opencode.allowance`: how much of the Go plan's limit the request used.
+- `opencode.list_cost`: the list-price value, for comparison only.
 
-Canonical OpenRouter-style IDs and raw Go IDs are accepted. For example:
+All gateway keys share one Go subscription and its limits. OpenCode describes Go as
+intended for coding agents and monitors traffic; check its
+[terms](https://opencode.ai/docs/go/) before serving other workloads.
 
-```text
-deepseek/deepseek-v4.1-flash  -> deepseek-v4.1-flash
-opencode-go/deepseek-v4.1-flash -> deepseek-v4.1-flash
-deepseek-v4.1-flash          -> deepseek-v4.1-flash
-```
+## Documentation
 
-Catalog maintenance is deliberate: edit `config/models.json`, run
-`python3 scripts/check_catalog.py`, then click **Reload model catalog** in the admin
-settings. New Go models are not silently enabled from an unreviewed global catalog.
-Prices are snapshots; the actual usage receipt is authoritative.
+| Document | Contents |
+|---|---|
+| [How it works](docs/how-it-works.md) | Architecture, request flow, source code map, data on disk |
+| [Windows setup](docs/setup-windows.md) / [Linux setup](docs/setup-linux.md) | New server from scratch |
+| [Operations](docs/operations.md) | Logs, monitoring, updates, backups, limits, troubleshooting |
+| [API](docs/api.md) / [Compatibility](docs/compatibility.md) | Endpoints, parameters, differences from OpenRouter |
+| [Testing](docs/testing.md) | Test suites, load test and measured results |
+| [Security](SECURITY.md) | Security model and reporting |
+| [.env.example](.env.example) | Every setting, explained |
 
-## Costs and limits
+## Development
 
-```json
-{
-  "usage": {
-    "prompt_tokens": 1200,
-    "completion_tokens": 300,
-    "cost": 0,
-    "opencode": {
-      "billing_source": "go",
-      "list_cost": 0.0012,
-      "allowance": 0.0009
-    }
-  }
-}
-```
-
-- `cost`: actual additional cash charged according to the upstream receipt.
-- `list_cost`: nominal model-price value; it is not necessarily a charge.
-- `allowance`: amount consumed from Go's weighted allowance.
-- `MONTHLY_SUBSCRIPTION_USD`: your fixed monthly price, displayed separately.
-
-A `$0` request can consume allowance. Missing usage remains unknown and is counted
-as missing; disconnected streams are never presented as confirmed free requests.
-Only final reported usage is authoritative. No usage or price figures are invented.
-
-All downstream keys share the same upstream subscription. Creating more client keys
-does not multiply Go limits. The gateway never falls back to the paid Console API.
-Go is intended for coding-agent traffic; consult its current allowed-use guidance
-before exposing the service to other workloads or users.
-
-## Configuration and development
-
-All configuration is documented in [.env.example](.env.example). Defaults: loopback
-bind, 8 concurrent inference calls, 20 MiB requests, 16 MiB JSON/SSE event limit,
-600-second request deadline, 90-second stream idle timeout, 64 KiB captured payloads,
-and 30-day detailed logs. Admin sessions last 12 hours and expire on restart.
+Requires Rust 1.88+ and a C compiler (for bundled SQLite).
 
 ```bash
 cargo fmt --all -- --check
 cargo clippy --locked --all-targets -- -D warnings
 cargo test --locked
 cargo build --locked
-python3 tests/integration.py
+python3 tests/integration.py      # full gateway against a mock model; no credentials
 python3 scripts/check_catalog.py
 ```
 
-Integration tests use a local mock upstream and fake credentials. They verify
-protocol behavior without consuming any model quota. Real upstream availability
-is tested separately and documented with its limitations.
+To run locally: `python3 scripts/setup.py`, then `cargo run`, then open
+`http://localhost:8080/admin` (password in `data/admin-login.txt`).
 
-## Upstream references
+Releases: pushing a `v*` tag builds Windows and Linux (x86_64, ARM64) packages with
+checksums through GitHub Actions. Install scripts download the latest release.
 
-- [OpenRouter API](https://openrouter.ai/docs/api_reference/overview)
-- [OpenRouter streaming](https://openrouter.ai/docs/api_reference/streaming)
-- [OpenCode Go usage and allowed clients](https://opencode.ai/v2/docs/console/go/)
-- [OpenCode inference cost fields](https://opencode.ai/v2/docs/console/api/inference/)
-
-MIT licensed. Go Router is an independent project.
+MIT licensed. Go Router is an independent project, not affiliated with OpenRouter or OpenCode.

@@ -1,19 +1,22 @@
 # Verification and performance
 
-Checked on **29 October 2026**. Test levels are separated below: protocol contracts,
+Last updated **2 November 2026**. Test levels are separated below: protocol contracts,
 real upstream functionality, browser behavior, and local gateway overhead.
 
 ## Automated tests
 
-- **7 Rust unit tests:** SSE fragmentation, UTF-8/CRLF/multiline framing, usage chunk
+- **8 Rust unit tests:** SSE fragmentation, UTF-8/CRLF/multiline framing, usage chunk
   normalization, tool/reasoning fragments, stream errors, event size bounds, durable
   accounting after payload cleanup, and duplicate-log accounting protection.
-- **31 black-box integration tests:** a real HTTP gateway process against a local
+- **32 black-box integration tests:** a real HTTP gateway process against a local
   mock upstream. Covers authentication, model aliases/pagination, JSON/SSE, usage,
   tool history, structured-output parameter forwarding, fallback, provider constraints,
   unsupported features, key scopes/expiry/revocation/RPM, CSRF/origin checks, generation
   ownership, media inputs, Responses, Messages, legacy completions, native errors,
-  redaction, concurrency, cancellation, idle timeouts, and missing accounting receipts.
+  redaction, concurrency, cancellation, idle timeouts, missing accounting receipts,
+  anonymous traffic not being stored, and per-client admin login limits.
+- **3 credential tests:** the dashboard Go-key lifecycle across restarts, safe errors
+  for a malformed `.env`, and the non-interactive setup helper.
 - **8 published OpenAPI response contracts:** models, user models, providers, single
   model, endpoints, key, generation and chat responses validated against OpenRouter's
   public specification. Its explicit `x-speakeasy-unknown-values: allow` extension is
@@ -130,7 +133,7 @@ python3 tests/benchmark.py --docker-image go-router:test
 Actual network/model latency dominates typical inference calls. The gateway does no
 local model inference, transcription, OCR, tokenization, or GPU work.
 
-## Server monitor and concurrent chat load test (v0.3.0)
+## Server monitor and concurrent chat load test
 
 The dashboard **Server monitor** tab samples the gateway every 5 seconds and keeps
 one hour in memory. It shows process CPU (100% = one vCPU), resident memory (the
@@ -194,16 +197,7 @@ full payload logging) behind Caddy HTTPS, DeepSeek V4.1 Flash through OpenCode G
 
 Receipts and the dashboard ledger matched exactly. Model time dominated latency.
 
-## GitHub hosted runners
-
-The initial private-repository CI run could not start either job. GitHub reported:
-“Recent account payments have failed or your spending limit needs to be increased.”
-This is an account runner restriction, not a test result. Local unit/integration/
-contract/browser checks and the Docker build were completed separately.
-The supplied Linux x86_64 binary was built locally from the Dockerfile and passed
-the HTTP integration and published-schema checks. Deployment does not depend on
-Actions. After resolving GitHub account billing/limits, rerun the CI workflow.
-# Dashboard credential checks (v0.2.0)
+## Dashboard credential checks
 
 `python3 tests/credentials.py` uses fake keys and a local mock to check keyless
 startup, admin/CSRF/origin protections, immediate save/rotation, persistence across

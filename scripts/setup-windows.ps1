@@ -1,5 +1,7 @@
+# Called by install-windows.ps1. Creates the private .env and data\admin-login.txt with a
+# random admin password, and restricts the folder to this account, Administrators and SYSTEM.
 param(
-    [string]$Origin = 'http://127.0.0.1:8080',
+    [Parameter(Mandatory=$true)][string]$Origin,
     [string]$Bind = '127.0.0.1:8080'
 )
 $ErrorActionPreference = 'Stop'

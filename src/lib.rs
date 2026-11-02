@@ -39,7 +39,8 @@ pub struct Inner {
     pub slots: Arc<Semaphore>,
     pub login_slots: Semaphore,
     pub rate: Mutex<HashMap<String, (Instant, u32)>>,
-    pub login_rate: Mutex<(Instant, u32)>,
+    /// Failed-login budget per client address: (window start, attempts).
+    pub login_rate: Mutex<std::collections::HashMap<String, (Instant, u32)>>,
     pub password_hash: String,
     pub upstream: RwLock<UpstreamCredential>,
     pub credential_updates: tokio::sync::Mutex<()>,
@@ -104,7 +105,7 @@ impl App {
             slots,
             login_slots: Semaphore::new(2),
             rate: Mutex::new(HashMap::new()),
-            login_rate: Mutex::new((Instant::now(), 0)),
+            login_rate: Mutex::new(Default::default()),
             password_hash,
             upstream: RwLock::new(upstream),
             credential_updates: tokio::sync::Mutex::new(()),

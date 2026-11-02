@@ -12,6 +12,9 @@ use std::{
 };
 use tokio::sync::oneshot;
 
+/// Upper bound on queued database jobs; beyond it request logs are dropped, not buffered.
+const MAX_PENDING_JOBS: usize = 10_000;
+
 type Job = Box<dyn FnOnce(&mut Connection) + Send + 'static>;
 #[derive(Clone)]
 pub struct Db {
@@ -153,6 +156,10 @@ impl Db {
         rx.await.context("Database worker response")?
     }
     pub fn save_log(&self, log: Log) {
+        if self.queue_depth() >= MAX_PENDING_JOBS {
+            eprintln!("database queue full; request log {} dropped", log.id);
+            return;
+        }
         let _ = self.send(Box::new(move |c| {
             let result = (|| -> Result<()> {
                 let (cash, list, allowance) = log.costs();

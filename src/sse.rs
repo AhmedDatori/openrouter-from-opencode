@@ -202,7 +202,10 @@ impl State {
                         response["model"] = json!(self.model)
                     }
                 }
-                if v["type"] == "response.completed" {
+                if matches!(
+                    v["type"].as_str(),
+                    Some("response.completed" | "response.incomplete" | "response.failed")
+                ) {
                     self.done = true
                 }
             }

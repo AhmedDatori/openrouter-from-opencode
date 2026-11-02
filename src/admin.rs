@@ -54,10 +54,22 @@ pub async fn security_headers(req: Request, next: Next) -> Response {
 pub async fn login(State(app): State<App>, req: Request) -> ApiResult<Response> {
     auth::origin(&app, req.headers())?;
     {
-        let mut rate = app.login_rate.lock().unwrap();
-        if rate.0.elapsed().as_secs() >= 60 {
-            *rate = (Instant::now(), 0)
+        // Limit attempts per client so one attacker cannot lock the real admin out.
+        // The gateway listens on loopback behind a proxy that sets X-Forwarded-For;
+        // its last entry is the address that proxy saw.
+        let client = req
+            .headers()
+            .get("x-forwarded-for")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.rsplit(',').next())
+            .map(|v| v.trim().to_string())
+            .unwrap_or_else(|| "direct".into());
+        let mut rates = app.login_rate.lock().unwrap();
+        rates.retain(|_, (start, _)| start.elapsed().as_secs() < 60);
+        if rates.len() >= 10_000 && !rates.contains_key(&client) {
+            return Err(ApiError::new(429, "Admin login is busy"));
         }
+        let rate = rates.entry(client).or_insert((Instant::now(), 0));
         if rate.1 >= 10 {
             let mut e = ApiError::new(429, "Too many admin login attempts; retry in one minute");
             e.retry_after = Some("60".into());

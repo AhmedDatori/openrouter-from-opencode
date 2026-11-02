@@ -1,6 +1,7 @@
 #Requires -RunAsAdministrator
-# Move an installed public gateway (GoRouterCaddy) to a DNS hostname. Caddy then
-# presents a certificate only for that hostname, so the old address stops working.
+# Change the public domain of an installed gateway. Caddy then presents a certificate
+# only for the new hostname, so the old address stops working. Usage:
+#   powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\set-domain-windows.ps1 -Domain api.example.com [-NewPassword]
 param(
     [Parameter(Mandatory=$true)][string]$Domain,
     [switch]$NewPassword
@@ -17,7 +18,7 @@ $caddy = Join-Path $root 'caddy/caddy.exe'
 $config = Join-Path $root 'caddy/Caddyfile'
 $envPath = Join-Path $root '.env'
 $loginPath = Join-Path $root 'data/admin-login.txt'
-if (!(Get-Service -Name GoRouterCaddy -ErrorAction SilentlyContinue)) { throw 'GoRouterCaddy is not installed. Use publish-windows.ps1 for a first installation.' }
+if (!(Get-Service -Name GoRouterCaddy -ErrorAction SilentlyContinue)) { throw 'GoRouterCaddy is not installed. Use install-windows.ps1 for a first installation.' }
 foreach ($path in @($caddy, $config, $envPath)) {
     if (!(Test-Path -LiteralPath $path)) { throw "Missing $path." }
 }

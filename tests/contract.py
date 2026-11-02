@@ -14,7 +14,7 @@ from integration import Gateway
 p=argparse.ArgumentParser(description=__doc__);p.add_argument('--spec',type=pathlib.Path);args=p.parse_args()
 if args.spec:spec=json.loads(args.spec.read_text())
 else:
- with urllib.request.urlopen('https://openrouter.ai/openapi.json',timeout=30) as response:spec=json.load(response)
+ with urllib.request.urlopen(urllib.request.Request('https://openrouter.ai/openapi.json',headers={'User-Agent':'go-router-contract-test'}),timeout=30) as response:spec=json.load(response)
 original=Draft202012Validator.VALIDATORS['enum']
 def compatible_enum(validator,values,instance,schema):
  if schema.get('x-speakeasy-unknown-values')!='allow':yield from original(validator,values,instance,schema)

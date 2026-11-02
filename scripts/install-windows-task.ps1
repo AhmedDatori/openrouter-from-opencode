@@ -1,4 +1,6 @@
 #Requires -RunAsAdministrator
+# Called by install-windows.ps1. Registers the GoRouter startup task (runs as SYSTEM,
+# restarts on failure) and waits until the gateway answers on 127.0.0.1:8080.
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 if (!(Test-Path -LiteralPath (Join-Path $root '.env'))) { throw 'Run scripts\setup-windows.ps1 first.' }
@@ -18,4 +20,3 @@ for ($i = 0; $i -lt 30; $i++) {
 }
 if (!$ready) { throw 'Task registered but port 8080 did not become ready. Inspect data\server.log and the task state.' }
 Write-Host 'GoRouter is running and will start after reboot, including when you disconnect RDP.'
-Write-Host 'Admin: http://127.0.0.1:8080/admin ; credentials: data\admin-login.txt'

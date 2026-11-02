@@ -207,4 +207,11 @@ class Gateway(unittest.TestCase):
   _,h,_=self.chat(stream=True,test_mode='mid_error');s,_,v=self.call('GET','/api/v1/generation?id='+h['X-Generation-Id'],key=self.key);self.assertEqual(s,409);self.assertIn('no finalized usage',v['error']['message'])
  def test_31_catalog_pagination(self):
   s,_,v=self.call('GET','/api/v1/models?limit=7');self.assertEqual(s,200);self.assertEqual(len(v['data']),7);self.assertEqual(v['total_count'],30);self.assertIsNotNone(v['links']['next']);s,_,next_page=self.call('GET',v['links']['next']);self.assertEqual(s,200);self.assertNotEqual(next_page['data'][0]['id'],v['data'][0]['id']);self.assertEqual(self.call('GET','/api/v1/models?limit=0')[0],400)
+ def test_32_anonymous_traffic_and_login_limit_per_client(self):
+  s,h,_=self.call('POST','/api/v1/chat/completions',{},key='invalid');self.assertEqual(s,401);time.sleep(.2)
+  s,_,v=self.call('GET','/admin/api/logs',admin=True);self.assertEqual(s,200);self.assertNotIn(h['X-Request-Id'],json.dumps(v))
+  attacker={'X-Forwarded-For':'203.0.113.9'}
+  for _ in range(10):self.call('POST','/admin/api/login',{'password':'wrong'},headers=attacker)
+  self.assertEqual(self.call('POST','/admin/api/login',{'password':'wrong'},headers=attacker)[0],429)
+  self.assertEqual(self.call('POST','/admin/api/login',{'password':PASSWORD},headers={'X-Forwarded-For':'198.51.100.7'})[0],200)
 if __name__=='__main__':unittest.main(verbosity=2)

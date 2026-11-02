@@ -112,12 +112,17 @@ pub async fn read_json(req: Request, max: usize) -> ApiResult<Value> {
     {
         return Err(ApiError::bad("Content-Type must be application/json"));
     }
-    let bytes = to_bytes(req.into_body(), max).await.map_err(|_| {
-        ApiError::new(
-            413,
-            "Request body exceeds MAX_BODY_BYTES or could not be read",
-        )
-    })?;
+    // Small admin bodies get a short deadline; large media uploads get longer.
+    let deadline = Duration::from_secs(if max <= 65536 { 10 } else { 120 });
+    let bytes = tokio::time::timeout(deadline, to_bytes(req.into_body(), max))
+        .await
+        .map_err(|_| ApiError::new(408, "Request body was not received in time"))?
+        .map_err(|_| {
+            ApiError::new(
+                413,
+                "Request body exceeds MAX_BODY_BYTES or could not be read",
+            )
+        })?;
     let value: Value =
         serde_json::from_slice(&bytes).map_err(|e| ApiError::bad(format!("Invalid JSON: {e}")))?;
     if !value.is_object() {
@@ -136,13 +141,14 @@ async fn handle(app: App, ctx: Context, req: Request, kind: Kind) -> ApiResult<R
             "OpenCode Go is not configured. The administrator must save a Go API key in Dashboard > Setup & settings.",
         ));
     }
+    // Read the body before taking a slot so slow uploads cannot block other clients.
+    let mut body = read_json(req, app.cfg.max_body_bytes).await?;
     let permit = app.slots.clone().try_acquire_owned().map_err(|_| {
         app.metrics.rejected();
         let mut e = ApiError::new(429, "Gateway concurrency limit reached");
         e.retry_after = Some("1".into());
         e
     })?;
-    let mut body = read_json(req, app.cfg.max_body_bytes).await?;
     ctx.edit(|r| {
         r.bytes_in = body.to_string().len();
         if app.cfg.log_bodies {
@@ -261,8 +267,8 @@ async fn handle(app: App, ctx: Context, req: Request, kind: Kind) -> ApiResult<R
                 .get("content-type")
                 .is_some_and(|s| s.as_bytes().starts_with(b"text/event-stream"))
             {
-                last_error = Some(ApiError::new(502, "Upstream did not return an SSE stream"));
-                continue;
+                // The upstream accepted (and may have billed) this request: do not retry another model.
+                return Err(ApiError::new(502, "Upstream did not return an SSE stream"));
             }
             let mut bytes = upstream.bytes_stream();
             let mut parser = sse::Parser::default();
@@ -346,10 +352,8 @@ async fn handle(app: App, ctx: Context, req: Request, kind: Kind) -> ApiResult<R
         .await
         {
             Ok(value) => value,
-            Err(error) => {
-                last_error = Some(error);
-                continue;
-            }
+            // The upstream accepted (and may have billed) this request: do not retry another model.
+            Err(error) => return Err(error),
         };
         if value.get("error").is_some_and(|e| !e.is_null()) {
             return Err(upstream_error(
