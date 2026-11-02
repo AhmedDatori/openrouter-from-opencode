@@ -15,6 +15,10 @@ pub fn secret(prefix: &str) -> String {
     rand::rngs::OsRng.fill_bytes(&mut bytes);
     format!("{prefix}{}", URL_SAFE_NO_PAD.encode(bytes))
 }
+/// Compares secrets without an early exit, so timing does not reveal matching prefixes.
+pub fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+}
 pub fn hash(s: &str) -> String {
     format!("{:x}", Sha256::digest(s.as_bytes()))
 }
@@ -104,7 +108,7 @@ pub async fn spending_caps(app: &App, key: &Key) -> ApiResult<()> {
             let mut e = ApiError::new(
                 429,
                 format!(
-                    "API key {label} spending cap reached: ${spent:.4} of ${cap:.2} used (UTC). Resets at {reset}."
+                    "API key {label} spending cap reached: ${spent:.4} of ${cap:.4} used (UTC). Resets at {reset}."
                 ),
             );
             e.retry_after = Some(wait.to_string());
@@ -190,7 +194,12 @@ pub async fn admin(app: &App, headers: &HeaderMap, write: bool) -> ApiResult<(St
         .filter(|(_, t)| *t > chrono::Utc::now().timestamp())
         .ok_or_else(|| ApiError::new(401, "Admin session expired"))?;
     let _ = expiry;
-    if write && headers.get("x-csrf-token").and_then(|s| s.to_str().ok()) != Some(csrf.as_str()) {
+    if write
+        && !headers
+            .get("x-csrf-token")
+            .and_then(|s| s.to_str().ok())
+            .is_some_and(|given| constant_time_eq(given.as_bytes(), csrf.as_bytes()))
+    {
         return Err(ApiError::new(403, "Invalid CSRF token"));
     }
     Ok((hash, csrf))

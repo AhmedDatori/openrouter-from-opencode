@@ -167,11 +167,22 @@ class Gateway(unittest.TestCase):
    line=r.readline()
    if b'"content":"' in line:break
   r.close();conn.close()
-  for _ in range(30):
+  for _ in range(60):
    s,_,v=self.call('GET','/admin/api/logs/'+gid,admin=True)
    if s==200:break
-   time.sleep(.05)
-  self.assertEqual(s,200);self.assertEqual(v['outcome'],'client_disconnected');self.assertIsNone(v['usage']);self.assertTrue(v['response']['stream_events'])
+   time.sleep(.1)
+  # The gateway keeps reading the billed upstream answer after the client leaves, so usage is recorded.
+  self.assertEqual(s,200);self.assertEqual(v['outcome'],'client_disconnected');self.assertEqual(v['usage']['opencode']['allowance'],.0015);self.assertTrue(v['response']['stream_events'])
+ def test_21b_disconnect_before_json_answer_is_still_billed(self):
+  created=self.new_key('disconnect',rpm=0);conn=http.client.HTTPConnection('127.0.0.1',self.port,timeout=.2)
+  conn.request('POST','/api/v1/chat/completions',json.dumps({'model':'deepseek-v4.1-flash','messages':[{'role':'user','content':'Hi'}],'test_mode':'hold'}),{'Authorization':'Bearer '+created['key'],'Content-Type':'application/json'})
+  with self.assertRaises(Exception):conn.getresponse()
+  conn.close()
+  for _ in range(40):
+   s,_,v=self.call('GET',f"/admin/api/keys/{created['data']['id']}/stats",admin=True)
+   if v['totals']['requests']:break
+   time.sleep(.1)
+  self.assertEqual(v['totals']['requests'],1);self.assertAlmostEqual(v['totals']['allowance_usd'],.0015)
  def test_22_logs_stats_and_catalog_reload(self):
   s,_,v=self.call('GET','/admin/api/logs?limit=200',admin=True);self.assertEqual(s,200);self.assertGreater(v['total'],10)
   s,_,v=self.call('GET','/admin/api/stats',admin=True);self.assertEqual(s,200);self.assertGreater(v['totals']['allowance_usd'],0);self.assertEqual(v['totals']['cash_usd'],0)
@@ -215,15 +226,23 @@ class Gateway(unittest.TestCase):
   self.assertEqual(self.call('POST','/admin/api/login',{'password':'wrong'},headers=attacker)[0],429)
   self.assertEqual(self.call('POST','/admin/api/login',{'password':PASSWORD},headers={'X-Forwarded-For':'198.51.100.7'})[0],200)
  def test_33_spending_caps_and_key_stats(self):
-  for bad in [0,-1,'5']:self.assertEqual(self.call('POST','/admin/api/keys',{'name':'bad cap','cap_day_usd':bad},admin=True)[0],400)
-  created=self.new_key('capped',cap_hour_usd=0.001,rpm=0);key=created['key'];kid=created['data']['id'];self.assertEqual(created['data']['cap_hour_usd'],0.001)
+  for bad in [0,0.001,-1,'5']:self.assertEqual(self.call('POST','/admin/api/keys',{'name':'bad cap','cap_day_usd':bad},admin=True)[0],400)
+  created=self.new_key('capped',cap_hour_usd=0.01,rpm=0);key=created['key'];kid=created['data']['id'];self.assertEqual(created['data']['cap_hour_usd'],0.01)
   body={'model':'deepseek/deepseek-v4.1-flash','messages':[{'role':'user','content':'Hello'}]}
-  self.assertEqual(self.call('POST','/api/v1/chat/completions',body,key=key)[0],200);time.sleep(.3)
-  s,h,v=self.call('POST','/api/v1/chat/completions',body,key=key);self.assertEqual(s,429);self.assertIn('hourly spending cap',v['error']['message']);self.assertGreater(int(h['Retry-After']),0)
-  s,_,v=self.call('GET','/api/v1/key',key=key);self.assertEqual(s,200);self.assertEqual(v['data']['limit'],0.001);self.assertEqual(v['data']['limit_reset'],'hourly');self.assertEqual(v['data']['limit_remaining'],0)
-  s,_,v=self.call('GET',f'/admin/api/keys/{kid}/stats',admin=True);self.assertEqual(s,200);self.assertEqual(v['totals']['requests'],2);self.assertEqual(v['totals']['errors'],1);self.assertAlmostEqual(v['caps'][0]['spent_usd'],.0015);self.assertIsNone(v['caps'][2]['cap_usd']);self.assertEqual(sum(r['requests'] for r in v['hourly']),2);self.assertIn('deepseek/deepseek-v4.1-flash',[m['model'] for m in v['models']]);self.assertIsNotNone(v['latency_24h']['p50_ms'])
-  s,_,v=self.call('GET','/admin/api/keys',admin=True);row=next(k for k in v['data'] if k['id']==kid);self.assertAlmostEqual(row['usage']['spend_month_usd'],.0015);self.assertIn('last_used_at',row['usage'])
+  ok=0
+  for _ in range(12):
+   s,h,v=self.call('POST','/api/v1/chat/completions',body,key=key)
+   if s!=200:break
+   ok+=1;time.sleep(.1)
+  # Each mock request uses $0.0015 of allowance, so the 8th request finds $0.0105 >= $0.01.
+  self.assertEqual(ok,7);self.assertEqual(s,429);self.assertIn('hourly spending cap',v['error']['message']);self.assertGreater(int(h['Retry-After']),0)
+  s,_,v=self.call('GET','/api/v1/key',key=key);self.assertEqual(s,200);self.assertEqual(v['data']['limit'],0.01);self.assertEqual(v['data']['limit_reset'],'hourly');self.assertEqual(v['data']['limit_remaining'],0)
+  s,_,v=self.call('GET',f'/admin/api/keys/{kid}/stats',admin=True);self.assertEqual(s,200);self.assertEqual(v['totals']['requests'],8);self.assertEqual(v['totals']['errors'],1);self.assertAlmostEqual(v['caps'][0]['spent_usd'],.0105);self.assertIsNone(v['caps'][2]['cap_usd']);self.assertEqual(sum(r['requests'] for r in v['hourly']),8);self.assertIn('deepseek/deepseek-v4.1-flash',[m['model'] for m in v['models']]);self.assertIsNotNone(v['latency_24h']['p50_ms'])
+  s,_,v=self.call('GET','/admin/api/keys',admin=True);row=next(k for k in v['data'] if k['id']==kid);self.assertAlmostEqual(row['usage']['spend_month_usd'],.0105);self.assertIn('last_used_at',row['usage'])
   self.assertEqual(self.call('PATCH',f'/admin/api/keys/{kid}',{'cap_hour_usd':None,'cap_month_usd':1},admin=True)[0],200)
   self.assertEqual(self.call('POST','/api/v1/chat/completions',body,key=key)[0],200)
   self.assertEqual(self.call('GET',f'/admin/api/keys/missing/stats',admin=True)[0],404)
+ def test_34_json_value_bomb_rejected(self):
+  bomb=b'{"model":"deepseek-v4.1-flash","messages":[],"x":['+b'0,'*200001+b'0]}'
+  s,_,v=self.call('POST','/api/v1/chat/completions',bomb,key=self.key);self.assertEqual(s,413);self.assertIn('too many values',v['error']['message'])
 if __name__=='__main__':unittest.main(verbosity=2)

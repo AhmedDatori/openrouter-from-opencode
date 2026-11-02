@@ -68,6 +68,15 @@ local fake model; without it, it makes real paid calls. See [Testing](testing.md
   program in `data\go-router-before-update.exe`, and restarts the gateway.
 - **Linux:** see [Update to a new release](setup-linux.md#update-to-a-new-release).
 
+After `git pull` on Windows, run `scripts\secure-windows.ps1` once if the installation
+is older than v0.4.1: it locks the folder permissions and moves Caddy and the gateway
+from SYSTEM to the LocalService account (switching back automatically if anything
+fails). Running it again later is harmless.
+
+Each release is built by GitHub Actions with a signed build-provenance attestation. To
+check that a downloaded package was built from this repository:
+`gh attestation verify go-router-windows-x86_64.zip --repo AhmedDatori/openrouter-from-opencode`.
+
 `.env`, the database and the admin password are never touched by updates. Newer
 versions upgrade the database automatically on first start. After upgrading to
 v0.4.0 or later, do not go back to an older version: it cannot create keys in the

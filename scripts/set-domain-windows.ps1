@@ -69,6 +69,7 @@ $caddyfile = @"
 }
 $Domain {
 $tlsConfig
+    header Strict-Transport-Security "max-age=31536000"
     reverse_proxy $upstream {
         flush_interval -1
     }
@@ -100,12 +101,16 @@ if (Test-Path -LiteralPath $loginPath) {
     $login = [regex]::Replace($login, '(?m)^URL:[^\r\n]*', "URL: https://$Domain/admin")
     $login = [regex]::Replace($login, '(?m)^API base URL:[^\r\n]*', "API base URL: https://$Domain/api/v1")
     if ($password) { $login = [regex]::Replace($login, '(?m)^Password:[^\r\n]*', "Password: $password") }
-} else {
-    $shown = if ($password) { $password } else { '(unchanged; see ADMIN_PASSWORD in .env)' }
-    $login = "Go Router admin`r`nURL: https://$Domain/admin`r`nPassword: $shown`r`n`r`nAPI base URL: https://$Domain/api/v1`r`n"
+    [IO.File]::WriteAllText($loginPath, $login, $utf8)
+} elseif ($password) {
+    # Only a new password is written down; a deleted login file is not recreated otherwise.
+    $login = "Go Router admin`r`nURL: https://$Domain/admin`r`nPassword: $password`r`n`r`nAPI base URL: https://$Domain/api/v1`r`n"
+    [IO.File]::WriteAllText($loginPath, $login, $utf8)
 }
-[IO.File]::WriteAllText($loginPath, $login, $utf8)
-Write-Host 'Updated caddy\Caddyfile, .env and data\admin-login.txt. Backups are in data\. No credentials printed.'
+if (Test-Path -LiteralPath $loginPath) {
+    & icacls.exe $loginPath /inheritance:r /grant:r '*S-1-5-32-544:F' '*S-1-5-18:F' | Out-Null
+}
+Write-Host 'Updated caddy\Caddyfile and .env (and data\admin-login.txt if present). Backups are in data\. No credentials printed.'
 
 # The gateway reads PUBLIC_URL and ADMIN_PASSWORD at startup.
 $task = Get-ScheduledTask -TaskName GoRouter -ErrorAction SilentlyContinue

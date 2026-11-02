@@ -51,6 +51,18 @@ pub async fn security_headers(req: Request, next: Next) -> Response {
     }
     res
 }
+/// Rate-limit bucket for a client address. IPv6 clients usually control a whole /64,
+/// so they are grouped by it; anything unparsable shares one bucket.
+fn client_bucket(addr: &str) -> String {
+    match addr.parse::<std::net::IpAddr>() {
+        Ok(std::net::IpAddr::V6(v6)) => {
+            let s = v6.segments();
+            format!("{:x}:{:x}:{:x}:{:x}::/64", s[0], s[1], s[2], s[3])
+        }
+        Ok(ip) => ip.to_string(),
+        Err(_) => "unparsed".into(),
+    }
+}
 pub async fn login(State(app): State<App>, req: Request) -> ApiResult<Response> {
     auth::origin(&app, req.headers())?;
     {
@@ -62,12 +74,19 @@ pub async fn login(State(app): State<App>, req: Request) -> ApiResult<Response> 
             .get("x-forwarded-for")
             .and_then(|v| v.to_str().ok())
             .and_then(|v| v.rsplit(',').next())
-            .map(|v| v.trim().to_string())
+            .map(|v| client_bucket(v.trim()))
             .unwrap_or_else(|| "direct".into());
         let mut rates = app.login_rate.lock().unwrap();
         rates.retain(|_, (start, _)| start.elapsed().as_secs() < 60);
-        if rates.len() >= 10_000 && !rates.contains_key(&client) {
-            return Err(ApiError::new(429, "Admin login is busy"));
+        // Bound memory without refusing new clients: forget the oldest entry instead.
+        if rates.len() >= 10_000
+            && !rates.contains_key(&client)
+            && let Some(oldest) = rates
+                .iter()
+                .min_by_key(|(_, (t, _))| *t)
+                .map(|(k, _)| k.clone())
+        {
+            rates.remove(&oldest);
         }
         let rate = rates.entry(client).or_insert((Instant::now(), 0));
         if rate.1 >= 10 {
@@ -212,10 +231,11 @@ fn validate_key(app: &App, body: &mut Value, create: bool) -> ApiResult<()> {
     for cap in ["cap_hour_usd", "cap_day_usd", "cap_month_usd"] {
         if let Some(v) = body.get(cap)
             && !v.is_null()
-            && v.as_f64().is_none_or(|n| !(n > 0.0 && n <= 1_000_000.0))
+            && v.as_f64()
+                .is_none_or(|n| !(0.01..=1_000_000.0).contains(&n))
         {
             return Err(ApiError::bad(format!(
-                "{cap} must be null (no cap) or a USD amount above 0"
+                "{cap} must be null (no cap) or a USD amount from 0.01 to 1000000"
             )));
         }
     }

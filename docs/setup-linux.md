@@ -41,7 +41,7 @@ cd /tmp
 curl -fLO https://github.com/AhmedDatori/openrouter-from-opencode/releases/latest/download/go-router-linux-$ARCH.tar.gz
 curl -fLO https://github.com/AhmedDatori/openrouter-from-opencode/releases/latest/download/go-router-linux-$ARCH.tar.gz.sha256
 sha256sum -c go-router-linux-$ARCH.tar.gz.sha256      # must print: OK
-sudo tar xzf go-router-linux-$ARCH.tar.gz -C /opt     # creates /opt/go-router
+sudo tar --no-same-owner -xzf go-router-linux-$ARCH.tar.gz -C /opt   # creates /opt/go-router, owned by root
 ```
 
 ## 3. Create the configuration and admin password
@@ -60,25 +60,30 @@ owner) with a random admin password. `--check` must print `Configuration valid`.
 ```bash
 sudo useradd --system --home /opt/go-router --shell /usr/sbin/nologin go-router
 sudo chown -R root:root /opt/go-router
-sudo chown -R go-router:go-router /opt/go-router/data /opt/go-router/.env
+sudo chown -R go-router:go-router /opt/go-router/data
+sudo chown root:root /opt/go-router/data/admin-login.txt          # readable by root only
+sudo chown root:go-router /opt/go-router/.env && sudo chmod 640 /opt/go-router/.env
 sudo cp deploy/go-router.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now go-router
 curl http://127.0.0.1:8080/readyz                     # must print {"status":"ready"}
 ```
 
-The service runs as an unprivileged user, can write only to `/opt/go-router/data`,
-restarts on failure and starts at boot. The program files stay owned by root.
+The service runs as an unprivileged user with a strict systemd sandbox (no
+capabilities, read-only system, limited system calls), can write only to
+`/opt/go-router/data`, restarts on failure and starts at boot. The program files and
+`.env` stay owned by root; the service can only read `.env`.
 
 ## 5. Publish it over HTTPS
 
 ```bash
-printf '%s {\n    reverse_proxy 127.0.0.1:8080 {\n        flush_interval -1\n    }\n}\n' "$DOMAIN" \
+printf '%s {\n    header Strict-Transport-Security "max-age=31536000"\n    reverse_proxy 127.0.0.1:8080 {\n        flush_interval -1\n    }\n}\n' "$DOMAIN" \
   | sudo tee /etc/caddy/Caddyfile
 sudo systemctl reload caddy
 ```
 
-`flush_interval -1` sends streamed answers to clients immediately. If the server
+`flush_interval -1` sends streamed answers to clients immediately. The
+`Strict-Transport-Security` header tells browsers to always use HTTPS for this domain. If the server
 uses `ufw`, allow the web ports (and keep SSH open):
 
 ```bash
@@ -92,7 +97,8 @@ sudo ufw allow 80,443/tcp
 sudo cat /opt/go-router/data/admin-login.txt
 ```
 
-1. Open `https://api.example.com/admin` and sign in with that password.
+1. Open `https://api.example.com/admin` and sign in with that password. Save it in a
+   password manager, then delete the file: `sudo rm /opt/go-router/data/admin-login.txt`.
 2. Open **Setup & settings**, paste your OpenCode Go API key and click **Save Go key**.
 3. Open **API keys** and create one key per application or developer.
 
@@ -113,10 +119,10 @@ model ID from `/api/v1/models`. Never share the admin password or the Go key.
 
 ```bash
 ARCH=x86_64        # or aarch64
-cd /tmp && rm -rf go-router
+cd "$(mktemp -d)"
 curl -fLO https://github.com/AhmedDatori/openrouter-from-opencode/releases/latest/download/go-router-linux-$ARCH.tar.gz
 curl -fLO https://github.com/AhmedDatori/openrouter-from-opencode/releases/latest/download/go-router-linux-$ARCH.tar.gz.sha256
-sha256sum -c go-router-linux-$ARCH.tar.gz.sha256 && tar xzf go-router-linux-$ARCH.tar.gz
+sha256sum -c go-router-linux-$ARCH.tar.gz.sha256 && tar --no-same-owner -xzf go-router-linux-$ARCH.tar.gz
 sudo install -m 755 go-router/go-router /opt/go-router/go-router
 sudo cp go-router/config/models.json /opt/go-router/config/models.json   # skip if you edited the catalog
 sudo systemctl restart go-router

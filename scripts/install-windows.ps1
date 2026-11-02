@@ -24,6 +24,10 @@ if (Get-Service -Name GoRouterCaddy -ErrorAction SilentlyContinue) {
     throw 'Go Router is already installed. Use update-windows.ps1 to upgrade or set-domain-windows.ps1 to change the domain.'
 }
 
+# 0. Lock the folder first, so nothing another user placed here can be used below.
+& powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'secure-windows.ps1') -AclOnly
+if ($LASTEXITCODE -ne 0) { throw 'Could not secure the installation folder.' }
+
 # 1. Preconditions: DNS and free ports.
 $addresses = @(Resolve-DnsName -Name $Domain -Type A -DnsOnly -ErrorAction SilentlyContinue | Where-Object { $_.Type -eq 'A' } | ForEach-Object { $_.IPAddress })
 if ($addresses.Count -eq 0) { throw "$Domain has no DNS A record yet. Point it at this server's public IPv4 address and retry." }
@@ -36,14 +40,19 @@ foreach ($port in $ports) {
     }
 }
 
-# 2. Gateway executable from the latest GitHub release (checksum verified).
-if (!(Test-Path -LiteralPath (Join-Path $root 'go-router.exe'))) {
-    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'update-windows.ps1')
-    if ($LASTEXITCODE -ne 0) { throw 'Downloading the gateway failed.' }
-}
+# 2. Gateway executable from the latest GitHub release (checksum verified). Always
+#    downloaded, never taken from a file that was already in the folder.
+& powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'update-windows.ps1')
+if ($LASTEXITCODE -ne 0) { throw 'Downloading the gateway failed.' }
 
 # 3. Caddy, pinned to an official release and verified by SHA512.
 New-Item -ItemType Directory -Path $caddyRoot -Force | Out-Null
+# SHA512 of caddy.exe inside the official v2.11.7 Windows zip; an existing copy must match.
+$caddyExeHash = 'c2f3062da74a21fb9a254cb9ea328ae72f3eb78d8bc324cc2bc5b0f9f63d1f07f3b1c12d04867710d655483684a20490a4b50f1d3e289a0edf479a3687b1972e'
+if ((Test-Path -LiteralPath $caddy) -and (Get-FileHash -LiteralPath $caddy -Algorithm SHA512).Hash.ToLowerInvariant() -ne $caddyExeHash) {
+    Write-Warning 'Existing caddy.exe does not match the official release; replacing it.'
+    Remove-Item -LiteralPath $caddy -Force
+}
 if (!(Test-Path -LiteralPath $caddy)) {
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
     $version = '2.11.7'
@@ -69,6 +78,7 @@ if (!(Test-Path -LiteralPath $caddy)) {
     Copy-Item -LiteralPath (Join-Path $unpacked 'caddy.exe') -Destination $caddy
     Copy-Item -LiteralPath (Join-Path $unpacked 'LICENSE') -Destination (Join-Path $caddyRoot 'LICENSE.caddy')
     Remove-Item -LiteralPath $unpacked, $archive -Recurse -Force
+    if ((Get-FileHash -LiteralPath $caddy -Algorithm SHA512).Hash.ToLowerInvariant() -ne $caddyExeHash) { throw 'caddy.exe checksum mismatch.' }
 }
 & $caddy version
 if ($LASTEXITCODE -ne 0) { throw 'The Caddy executable could not run.' }
@@ -106,6 +116,7 @@ $caddyfile = @"
 }
 $Domain {
 $tlsConfig
+    header Strict-Transport-Security "max-age=31536000"
     reverse_proxy 127.0.0.1:8080 {
         flush_interval -1
     }
@@ -152,10 +163,13 @@ for ($i = 0; $i -lt 24 -and !$ok; $i++) {
     try { $ok = (Invoke-WebRequest -UseBasicParsing -TimeoutSec 10 "https://$Domain/healthz").StatusCode -eq 200 } catch { }
 }
 if ($ok) {
+    # 9. Least privilege: run Caddy and the gateway as LocalService (rolls back if unhealthy).
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'secure-windows.ps1')
     Write-Host "Installed. Admin: https://$Domain/admin ; API base URL: https://$Domain/api/v1"
-    Write-Host 'Read the admin password with: notepad .\data\admin-login.txt'
+    Write-Host 'Read the admin password with: notepad .\data\admin-login.txt  (delete the file after you have saved it)'
 } else {
     Write-Warning "https://$Domain/healthz did not answer with a trusted certificate within 2 minutes."
     Get-Content (Join-Path $root 'data/caddy/process.log') -Tail 20 -ErrorAction SilentlyContinue
     Write-Host "Check that DNS points here and that the hosting provider's firewall allows TCP $($ports -join ', '). Then: Restart-Service GoRouterCaddy"
+    Write-Host 'Once https works, run scripts\secure-windows.ps1 to switch to least-privilege accounts.'
 }

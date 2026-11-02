@@ -33,7 +33,7 @@ impl Config {
                 .parse()
                 .map_err(|_| anyhow::anyhow!("Invalid {k}"))
         }
-        let c = Self {
+        let mut c = Self {
             bind: val("BIND", "127.0.0.1:8080"),
             database: val("DATABASE_PATH", "data/go-router.db").into(),
             upstream_base: val("GO_BASE_URL", "https://opencode.ai/inference/go")
@@ -64,6 +64,13 @@ impl Config {
                 .collect(),
             subscription_usd: num("MONTHLY_SUBSCRIPTION_USD", "10")?,
         };
+        // A dashboard served over HTTPS must never send its session cookie over plain HTTP.
+        if c.public_url
+            .as_deref()
+            .is_some_and(|u| u.starts_with("https://"))
+        {
+            c.cookie_secure = true;
+        }
         if c.admin_password.len() < 16 || c.admin_password.starts_with("replace-with-") {
             bail!("ADMIN_PASSWORD must have at least 16 characters");
         }

@@ -1,5 +1,5 @@
 # Called by install-windows.ps1. Creates the private .env and data\admin-login.txt with a
-# random admin password, and restricts the folder to this account, Administrators and SYSTEM.
+# random admin password.
 param(
     [Parameter(Mandatory=$true)][string]$Origin,
     [string]$Bind = '127.0.0.1:8080'
@@ -12,10 +12,7 @@ if (Test-Path -LiteralPath '.env') { throw '.env already exists. Setup never ove
 if ($Origin -notmatch '^https?://[^/]+$') { throw 'Origin must be an HTTP(S) origin without a path or trailing slash.' }
 if ($Bind -notmatch '^127\.0\.0\.1:\d+$') { throw 'This setup helper binds to loopback. Use an SSH tunnel or HTTPS reverse proxy.' }
 
-# Protect the installation before writing credentials. The scheduled task runs as SYSTEM.
-$sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
-& icacls.exe $root /inheritance:r /grant:r "*$($sid):(OI)(CI)F" '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-Null
-if ($LASTEXITCODE -ne 0) { throw 'Could not protect the installation folder. Extract into a dedicated local folder and retry.' }
+# Folder permissions are applied by secure-windows.ps1 before this runs.
 $bytes = New-Object byte[] 32
 $rng = [Security.Cryptography.RandomNumberGenerator]::Create()
 try { $rng.GetBytes($bytes) } finally { $rng.Dispose() }

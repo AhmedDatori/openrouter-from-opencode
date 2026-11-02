@@ -180,7 +180,9 @@ impl Db {
         rx.await.context("Database worker response")?
     }
     pub fn save_log(&self, log: Log) {
-        if self.queue_depth() >= MAX_PENDING_JOBS {
+        // Under extreme load, drop only logs without a usage receipt: those carrying
+        // usage are billing records that spending caps depend on.
+        if self.queue_depth() >= MAX_PENDING_JOBS && log.usage.is_none() {
             eprintln!("database queue full; request log {} dropped", log.id);
             return;
         }

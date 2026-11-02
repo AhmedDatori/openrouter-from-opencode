@@ -22,9 +22,31 @@ and steps to reproduce. Do not open a public issue for an unfixed vulnerability.
 | OpenCode Go key | Saved in the dashboard; stored in the SQLite database because it must be sent upstream. Never returned by any API, written to logs, or shown in errors. |
 
 Protect `.env`, `data/` and every backup like a password: they contain the Go key,
-request logs and key hashes. They are excluded from Git and Docker builds. The
-Windows installer restricts the folder to Administrators and SYSTEM; on Linux the
-setup helper creates `.env` with mode `600`.
+request logs and key hashes. They are excluded from Git and Docker builds. Delete
+`data/admin-login.txt` after saving the password in a password manager.
+
+## Least privilege on the server
+
+- **Windows:** the folder is locked to Administrators and SYSTEM before anything is
+  downloaded, and every file is owned by Administrators. Caddy and the gateway run
+  as the low-privilege **LocalService** account, which can read the program and write
+  only to `data\`; the admin password file is readable by Administrators only.
+  `scripts\secure-windows.ps1` applies and verifies all of this.
+- **Linux:** files are owned by root; the gateway runs as the `go-router` user in a
+  strict systemd sandbox (no capabilities, read-only system, filtered system calls)
+  and can write only to `data/`. `.env` is `root:go-router 640`.
+- **Docker:** the gateway runs as a non-root user with a read-only filesystem and no
+  capabilities; Caddy keeps only the capability to bind ports 80/443.
+- HTTPS everywhere with HSTS. The gateway port (8080) is never exposed.
+
+## Release integrity
+
+- Releases are built by GitHub Actions. Build jobs have read-only access; only the
+  final publish job can write, and every third-party action is pinned to a commit.
+- Each package has a SHA-256 checksum (checked by the update scripts) and a signed
+  build-provenance attestation: `gh attestation verify <file> --repo AhmedDatori/openrouter-from-opencode`.
+- Caddy is downloaded from its official release and verified against pinned SHA-512
+  hashes of both the archive and `caddy.exe`.
 
 If the Go key leaks, rotate it in the OpenCode console and save the new one in
 **Setup & settings**. If a gateway key leaks, revoke it in **API keys**.
@@ -33,17 +55,23 @@ If the Go key leaks, rotate it in the OpenCode console and save the new one in
 
 - Dashboard: CSRF token on every change, origin check against `PUBLIC_URL`, strict
   Content Security Policy, no external scripts or fonts, `no-store` caching.
-- Admin login: 10 attempts per minute per client address; at most two password
-  checks run at once.
+- Admin login: 10 attempts per minute per client address (IPv6 grouped by /64);
+  at most two password checks run at once. CSRF tokens are compared in constant time.
+  Session cookies are always `Secure` when `PUBLIC_URL` is HTTPS.
 - API keys: optional expiry, requests-per-minute limit, allowed-model list and
   spending caps per hour, day and month, so one leaked or runaway key cannot use
-  the whole Go plan.
+  the whole Go plan. Once OpenCode accepts a request, the gateway always reads the
+  answer to the end, even if the client disconnects, so its cost is recorded and
+  counted against the caps.
   Revocation stops new requests immediately (streams already running finish).
 - Requests without a valid key are rejected before any upstream call and are not
   stored, so anonymous traffic cannot fill the database.
-- Request bodies must arrive within a deadline and fit `MAX_BODY_BYTES`; a client
-  cannot hold a model slot while slowly uploading.
-- Upstream errors are passed through with the Go key redacted.
+- Request bodies must arrive within a deadline, fit `MAX_BODY_BYTES` and contain at
+  most 200,000 JSON values, so neither slow uploads nor "JSON bombs" can exhaust
+  model slots or memory.
+- Upstream errors, including errors inside streams, are passed through with the Go
+  key redacted.
+- Dependencies are checked against the RustSec advisory database (`cargo audit`).
 
 ## Your responsibilities
 

@@ -38,7 +38,7 @@ impl Kind {
     }
 }
 pub async fn chat(State(a): State<App>, Extension(c): Extension<Context>, r: Request) -> Response {
-    let result = handle(a, c.clone(), r, Kind::Chat).await;
+    let result = run(a, c.clone(), r, Kind::Chat).await;
     finish(&c, Kind::Chat, result)
 }
 pub async fn completions(
@@ -46,7 +46,7 @@ pub async fn completions(
     Extension(c): Extension<Context>,
     r: Request,
 ) -> Response {
-    let result = handle(a, c.clone(), r, Kind::Completions).await;
+    let result = run(a, c.clone(), r, Kind::Completions).await;
     finish(&c, Kind::Completions, result)
 }
 pub async fn responses(
@@ -54,7 +54,7 @@ pub async fn responses(
     Extension(c): Extension<Context>,
     r: Request,
 ) -> Response {
-    let result = handle(a, c.clone(), r, Kind::Responses).await;
+    let result = run(a, c.clone(), r, Kind::Responses).await;
     finish(&c, Kind::Responses, result)
 }
 pub async fn messages(
@@ -62,8 +62,15 @@ pub async fn messages(
     Extension(c): Extension<Context>,
     r: Request,
 ) -> Response {
-    let result = handle(a, c.clone(), r, Kind::Messages).await;
+    let result = run(a, c.clone(), r, Kind::Messages).await;
     finish(&c, Kind::Messages, result)
+}
+/// Runs `handle` in a separate task. If the client disconnects, the task still finishes
+/// the upstream exchange and records its usage before the request log is saved.
+async fn run(app: App, ctx: Context, req: Request, kind: Kind) -> ApiResult<Response> {
+    tokio::spawn(handle(app, ctx, req, kind))
+        .await
+        .unwrap_or_else(|_| Err(ApiError::new(500, "Request handler failed")))
 }
 fn finish(ctx: &Context, kind: Kind, result: ApiResult<Response>) -> Response {
     match result {
@@ -99,7 +106,39 @@ fn finish(ctx: &Context, kind: Kind, result: ApiResult<Response>) -> Response {
     }
 }
 
+/// Upper bound on JSON values (objects, arrays and list items) in one request body.
+/// Parsing costs memory per value, so `[0,0,0,...]` would otherwise turn 20 MiB of
+/// input into about 750 MiB of memory. Real requests, even with long histories, stay
+/// far below this; base64 media is a single string value.
+const MAX_JSON_VALUES: usize = 200_000;
+/// Counts `{`, `[` and `,` outside strings; returns true above `limit`.
+fn too_many_values(bytes: &[u8], limit: usize) -> bool {
+    let (mut in_string, mut escaped, mut count) = (false, false, 0usize);
+    for &b in bytes {
+        if in_string {
+            if escaped {
+                escaped = false
+            } else if b == b'\\' {
+                escaped = true
+            } else if b == b'"' {
+                in_string = false
+            }
+        } else if b == b'"' {
+            in_string = true
+        } else if matches!(b, b',' | b'[' | b'{') {
+            count += 1;
+            if count > limit {
+                return true;
+            }
+        }
+    }
+    false
+}
 pub async fn read_json(req: Request, max: usize) -> ApiResult<Value> {
+    read_json_sized(req, max).await.map(|(value, _)| value)
+}
+/// Like `read_json`, also returning the body size in bytes.
+async fn read_json_sized(req: Request, max: usize) -> ApiResult<(Value, usize)> {
     if !req
         .headers()
         .get("content-type")
@@ -123,12 +162,18 @@ pub async fn read_json(req: Request, max: usize) -> ApiResult<Value> {
                 "Request body exceeds MAX_BODY_BYTES or could not be read",
             )
         })?;
+    if too_many_values(&bytes, MAX_JSON_VALUES) {
+        return Err(ApiError::new(
+            413,
+            "Request JSON contains too many values (limit 200000)",
+        ));
+    }
     let value: Value =
         serde_json::from_slice(&bytes).map_err(|e| ApiError::bad(format!("Invalid JSON: {e}")))?;
     if !value.is_object() {
         return Err(ApiError::bad("Request body must be a JSON object"));
     }
-    Ok(value)
+    Ok((value, bytes.len()))
 }
 async fn handle(app: App, ctx: Context, req: Request, kind: Kind) -> ApiResult<Response> {
     ctx.edit(|r| r.kind = "inference".into());
@@ -143,7 +188,7 @@ async fn handle(app: App, ctx: Context, req: Request, kind: Kind) -> ApiResult<R
         ));
     }
     // Read the body before taking a slot so slow uploads cannot block other clients.
-    let mut body = read_json(req, app.cfg.max_body_bytes).await?;
+    let (mut body, body_bytes) = read_json_sized(req, app.cfg.max_body_bytes).await?;
     let permit = app.slots.clone().try_acquire_owned().map_err(|_| {
         app.metrics.rejected();
         let mut e = ApiError::new(429, "Gateway concurrency limit reached");
@@ -151,7 +196,7 @@ async fn handle(app: App, ctx: Context, req: Request, kind: Kind) -> ApiResult<R
         e
     })?;
     ctx.edit(|r| {
-        r.bytes_in = body.to_string().len();
+        r.bytes_in = body_bytes;
         if app.cfg.log_bodies {
             r.request = Some(redact(&body, app.cfg.max_log_bytes));
         }
@@ -288,6 +333,7 @@ async fn handle(app: App, ctx: Context, req: Request, kind: Kind) -> ApiResult<R
             let total = app.cfg.timeout_secs;
             let limit = app.cfg.max_response_bytes;
             let c = ctx.clone();
+            let secret = upstream_key.clone();
             let output = async_stream::stream! {
                                         let _permit=permit;let mut heartbeat=tokio::time::interval(Duration::from_secs(10));let mut last_data=Instant::now();
                                         loop {
@@ -310,7 +356,8 @@ async fn handle(app: App, ctx: Context, req: Request, kind: Kind) -> ApiResult<R
                                                             match parser.feed(&chunk,limit) {
                                                                 Ok(frames)=>{
                                                                     let mut invalid=false;
-                                                                    for frame in frames {
+                                                                    for mut frame in frames {
+                                                                        if let Some(d) = frame.data.as_mut().filter(|d| d.contains(secret.as_str())) { *d = d.replace(secret.as_str(), "[redacted]") }
                                                                         match state.transform(frame){Ok(out)=>{c.edit(|r|{r.usage=state.usage.clone();r.upstream_id=state.upstream_id.clone();if state.received_token && r.first_token_ms.is_none(){r.first_token_ms=Some(c.elapsed())}
             if let Some(event)=state.last_event.take(){if r.response.is_none(){r.response=Some(json!({"stream_events":[]}))}r.response.as_mut().unwrap()["stream_events"].as_array_mut().unwrap().push(event)}});yield Ok(bytes::Bytes::from(out));},Err(message)=>{c.edit(|r|{r.outcome="upstream_error".into();r.error=Some(message.clone())});yield Ok(bytes::Bytes::from(state.error(&message)));invalid=true;break}}
                                                                         c.edit(|r|{r.usage=state.usage.clone();r.upstream_id=state.upstream_id.clone()});
@@ -332,7 +379,23 @@ async fn handle(app: App, ctx: Context, req: Request, kind: Kind) -> ApiResult<R
                                         c.edit(|r|{r.usage=state.usage;r.upstream_id=state.upstream_id;if state.failed{r.outcome="upstream_error".into()}
                         if app.cfg.log_bodies{r.response=Some(json!({"stream_events":state.events,"capture_limit_bytes":app.cfg.max_log_bytes}))}});
                                     };
-            let mut res = Response::new(Body::from_stream(output));
+            // Drive the upstream stream in its own task. If the client disconnects, keep
+            // reading (within the same deadlines) so the final usage receipt is recorded
+            // and counted against the key's spending caps.
+            let (tx, rx) = tokio::sync::mpsc::channel::<Result<bytes::Bytes, std::io::Error>>(32);
+            tokio::spawn(async move {
+                let mut output = std::pin::pin!(output);
+                let mut connected = true;
+                while let Some(item) = output.next().await {
+                    if connected && tx.send(item).await.is_err() {
+                        connected = false;
+                    }
+                }
+            });
+            let body = futures_util::stream::unfold(rx, |mut rx| async move {
+                rx.recv().await.map(|item| (item, rx))
+            });
+            let mut res = Response::new(Body::from_stream(body));
             res.headers_mut().insert(
                 "content-type",
                 HeaderValue::from_static("text/event-stream; charset=utf-8"),

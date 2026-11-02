@@ -32,12 +32,16 @@ It is used to download the scripts now and to update them later.
 Open **Windows PowerShell as Administrator** and run:
 
 ```powershell
+New-Item -ItemType Directory C:\go-router | Out-Null
+icacls C:\go-router /inheritance:r /grant:r '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-18:(OI)(CI)F'
 git clone https://github.com/AhmedDatori/openrouter-from-opencode.git C:\go-router
 Set-Location C:\go-router
 ```
 
-No GitHub account is needed. Keep the folder at `C:\go-router`; the rest of this
-guide assumes that path.
+The `icacls` line makes the folder writable only by Administrators and SYSTEM
+**before** anything is downloaded into it, so no other account on the server can
+plant or change files that later run with high privileges. No GitHub account is
+needed. Keep the folder at `C:\go-router`; the rest of this guide assumes that path.
 
 ## 3. Check port 80
 
@@ -63,15 +67,20 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\install-window
 
 The script:
 
-1. Checks that the domain resolves and the ports are free.
+1. Locks the folder permissions, then checks that the domain resolves and the ports are free.
 2. Downloads the latest `go-router.exe` from this repository's GitHub releases and
    verifies its SHA-256 checksum.
-3. Downloads Caddy 2.11.7 from its official release and verifies its SHA-512 checksum.
+3. Downloads Caddy 2.11.7 from its official release and verifies the SHA-512 checksums
+   of the archive and of `caddy.exe`.
 4. Creates `.env` and a random admin password in `data\admin-login.txt`, and
    restricts the folder to Administrators and SYSTEM.
 5. Registers the **GoRouter** startup task (the gateway, on `127.0.0.1:8080`).
-6. Installs the **GoRouterCaddy** Windows service (HTTPS) and firewall rules for Caddy only.
+6. Installs the **GoRouterCaddy** Windows service (HTTPS, with HSTS) and firewall rules
+   for Caddy only.
 7. Waits until `https://<domain>/healthz` answers with a valid certificate.
+8. Runs `secure-windows.ps1`, which switches Caddy and the gateway from SYSTEM to the
+   low-privilege **LocalService** account and switches back automatically if they do
+   not come up healthy.
 
 It ends with `Installed. Admin: https://api.example.com/admin ...`. If it prints a
 warning instead, see [Troubleshooting](operations.md#troubleshooting).
@@ -84,7 +93,8 @@ The execution-policy flag applies only to that one command; no system policy cha
 notepad C:\go-router\data\admin-login.txt
 ```
 
-1. Open `https://api.example.com/admin` and sign in with that password.
+1. Open `https://api.example.com/admin` and sign in with that password. Save it in a
+   password manager, then delete the file: `Remove-Item C:\go-router\data\admin-login.txt`.
 2. Open **Setup & settings**, paste your OpenCode Go API key and click **Save Go key**.
    It takes effect immediately.
 3. Open **API keys** and create one key per application or developer. The full key
@@ -119,6 +129,7 @@ Never share the admin password or the OpenCode Go key. Send keys privately.
 | Update to the latest release | `git pull --ff-only` then `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\update-windows.ps1` |
 | Change the domain | `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\set-domain-windows.ps1 -Domain new.example.com` |
 | Change the admin password | add `-NewPassword` to the command above, with the current domain |
+| Re-apply permissions and least-privilege accounts | `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\secure-windows.ps1` |
 | Status | `Get-ScheduledTask GoRouter; Get-Service GoRouterCaddy` |
 | Logs | `Get-Content .\data\server.log -Tail 50` and `Get-Content .\data\caddy\process.log -Tail 50` |
 
