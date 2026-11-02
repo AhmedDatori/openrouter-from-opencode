@@ -30,6 +30,7 @@ const icons = {
   pulse: "M2 12h4l3-8 5 16 3-8h5",
   cpu: "M7 7h10v10H7zM10 3v4M14 3v4M10 17v4M14 17v4M3 10h4M3 14h4M17 10h4M17 14h4",
   memory: "M3 7h18v10H3zM7 7v10M11 7v10M15 7v10M3 21v-4M21 21v-4",
+  chart: "M4 20V11M10 20V5M16 20v-8M21 20H3",
 };
 const icon = (name, size = 16) =>
   `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${icons[name] || icons.grid}"/></svg>`;
@@ -99,8 +100,9 @@ function closeModal() {
   $("#modal").close();
   $("#modal").innerHTML = "";
 }
-function modal(content) {
+function modal(content, wide = false) {
   const el = $("#modal");
+  el.classList.toggle("wide", wide);
   el.innerHTML = `<button class="icon-btn close" data-action="close" aria-label="Close dialog">${icon("close")}</button>${content}`;
   if (!el.open) el.showModal();
 }
@@ -202,13 +204,134 @@ async function keysPage() {
       "Create separate keys for your applications and control their access.",
       `<button class="btn primary" data-action="create-key">${icon("plus")}Create key</button>`,
     ) +
-    `<section class="panel"><div class="panelhead"><h2>Your application keys</h2><small>${cache.keys.length} keys · secrets shown once</small></div>${cache.keys.length ? `<div class="tablewrap"><table><thead><tr><th>Name</th><th>Status</th><th>Rate limit</th><th>Models</th><th>Created</th><th>Actions</th></tr></thead><tbody>${cache.keys.map((k) => `<tr><td><div class="keyname"><span class="key-icon">${icon("key", 14)}</span><div><strong>${esc(k.name)}</strong><small class="mono">${esc(k.prefix)}…</small></div></div></td><td><span class="status ${k.disabled ? "off" : ""}">${k.disabled ? "Revoked" : k.expires_at && k.expires_at * 1000 < Date.now() ? "Expired" : "Active"}</span></td><td>${k.rpm ? k.rpm + " / min" : "Unlimited"}</td><td>${k.allowed_models.length ? k.allowed_models.length + " selected" : "All Go models"}</td><td>${when(k.created_at)}</td><td><button class="btn small" data-edit-key="${esc(k.id)}">Edit</button> <button class="btn small danger" data-revoke="${esc(k.id)}" ${k.disabled ? "disabled" : ""}>Revoke</button></td></tr>`).join("")}</tbody></table></div>` : '<div class="empty">Create your first API key to connect an application.</div>'}</section><p class="footnote">Keys are cryptographically random and stored as hashes. Revocation prevents new requests; requests already running are allowed to finish.</p>`;
+    `<section class="panel"><div class="panelhead"><h2>Your application keys</h2><small>${cache.keys.length} keys · secrets shown once</small></div>${cache.keys.length ? `<div class="tablewrap"><table><thead><tr><th>Name</th><th>Status</th><th>Spend today</th><th>Spend this month</th><th>Spending caps</th><th>Rate limit</th><th>Last used</th><th>Actions</th></tr></thead><tbody>${cache.keys.map((k) => `<tr><td><div class="keyname"><span class="key-icon">${icon("key", 14)}</span><div><strong>${esc(k.name)}</strong><small class="mono">${esc(k.prefix)}…</small></div></div></td><td><span class="status ${k.disabled ? "off" : ""}">${keyStatus(k)}</span></td><td>${usd(k.usage?.spend_day_usd || 0)}</td><td>${usd(k.usage?.spend_month_usd || 0)}<small class="cell-sub">${num(k.usage?.requests_month)} requests</small></td><td>${capsText(k)}</td><td>${k.rpm ? k.rpm + " / min" : "Unlimited"}</td><td>${when(k.usage?.last_used_at)}</td><td><button class="btn small" data-key-stats="${esc(k.id)}">${icon("chart", 12)}Stats</button> <button class="btn small" data-edit-key="${esc(k.id)}">Edit</button> <button class="btn small danger" data-revoke="${esc(k.id)}" ${k.disabled ? "disabled" : ""}>Revoke</button></td></tr>`).join("")}</tbody></table></div>` : '<div class="empty">Create your first API key to connect an application.</div>'}</section><p class="footnote">Spend is Go allowance plus any cash charged, in UTC windows. A key that reaches a spending cap gets HTTP 429 until that window resets. Keys are stored as hashes; revocation prevents new requests, and requests already running finish.</p>`;
+}
+const usd = (n) =>
+  n == null
+    ? "—"
+    : new Intl.NumberFormat("en-US", {
+        style: "currency",
+        currency: "USD",
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 4,
+      }).format(Number(n));
+const keyStatus = (k) =>
+  k.disabled
+    ? "Revoked"
+    : k.expires_at && k.expires_at * 1000 < Date.now()
+      ? "Expired"
+      : "Active";
+function capsText(k) {
+  const caps = [
+    [k.cap_hour_usd, "/ hour"],
+    [k.cap_day_usd, "/ day"],
+    [k.cap_month_usd, "/ month"],
+  ].filter(([v]) => v != null);
+  return caps.length
+    ? caps.map(([v, unit]) => `${usd(v)} ${unit}`).join("<br>")
+    : '<span class="muted">No caps</span>';
+}
+function barChart(points, label) {
+  const max = Math.max(1, ...points.map((p) => p.value));
+  const w = 20;
+  const bars = points
+    .map((p, i) => {
+      const h = (p.value / max) * 118;
+      return `<rect x="${i * w + 3}" y="${122 - h}" width="${w - 6}" height="${Math.max(h, 1.5)}" rx="3" fill="${p.value ? "#215a3d" : "#d8e9df"}"><title>${esc(p.title)}</title></rect>`;
+    })
+    .join("");
+  return `<div class="chart compact"><svg viewBox="0 0 ${points.length * w} 124" preserveAspectRatio="none" role="img" aria-label="${esc(label)}">${bars}</svg></div><div class="chart-labels"><span>${esc(points[0].label)}</span><span>${esc(points[points.length - 1].label)}</span></div>`;
+}
+async function keyStats(id) {
+  const s = await api("/keys/" + encodeURIComponent(id) + "/stats");
+  const k = s.key,
+    t = s.totals;
+  const windows = { hour: "This hour", day: "Today", month: "This month" };
+  const caps = s.caps
+    .map(
+      (c) =>
+        `<div class="cap-row"><div><strong>${windows[c.window]}</strong><small>${c.cap_usd ? "Resets " + when(c.resets_at) : "No cap set"}</small></div><div class="cap-value">${usd(c.spent_usd)}${c.cap_usd ? " of " + usd(c.cap_usd) : ""}</div>${c.cap_usd ? `<meter min="0" max="${c.cap_usd}" low="${c.cap_usd * 0.7}" high="${c.cap_usd * 0.9}" optimum="0" value="${Math.min(c.spent_usd, c.cap_usd)}"></meter>` : ""}</div>`,
+    )
+    .join("");
+  const errorRate = t.requests
+    ? ((100 * t.errors) / t.requests).toFixed(1) + "%"
+    : "0%";
+  const tiles = [
+    ["Requests", num(t.requests), `${num(t.errors)} failed (${errorRate})`],
+    [
+      "Spend",
+      usd(t.allowance_usd + t.cash_usd),
+      `${usd(t.cash_usd)} cash · ${usd(t.list_usd)} list value`,
+    ],
+    [
+      "Tokens",
+      num(t.prompt_tokens + t.completion_tokens),
+      `${num(t.prompt_tokens)} in · ${num(t.completion_tokens)} out`,
+    ],
+    [
+      "Average response",
+      t.requests ? ms(Math.round(t.avg_duration_ms)) : "—",
+      `Last 24 h: p50 ${ms(s.latency_24h.p50_ms)} · p95 ${ms(s.latency_24h.p95_ms)}`,
+    ],
+  ]
+    .map(
+      ([title, value, foot]) =>
+        `<div class="stat"><div class="stat-top">${title}</div><div class="stat-value">${value}</div><div class="stat-foot">${foot}</div></div>`,
+    )
+    .join("");
+  const days = [];
+  for (let i = 29; i >= 0; i--) {
+    const d = new Date();
+    d.setUTCDate(d.getUTCDate() - i);
+    const date = d.toISOString().slice(0, 10);
+    const row = s.daily.find((r) => r.date === date) || {};
+    days.push({
+      value: row.requests || 0,
+      label: new Date(date + "T12:00:00Z").toLocaleDateString(undefined, {
+        month: "short",
+        day: "numeric",
+      }),
+      title: `${date}: ${num(row.requests)} requests, ${num(row.errors)} failed, ${usd(row.spend_usd || 0)}`,
+    });
+  }
+  const hours = [];
+  for (let i = 23; i >= 0; i--) {
+    const d = new Date(Date.now() - i * 3600e3);
+    const hour = d.toISOString().slice(0, 13);
+    const row = s.hourly.find((r) => r.hour === hour) || {};
+    hours.push({
+      value: row.requests || 0,
+      label: d.toLocaleTimeString(undefined, { hour: "numeric" }),
+      title: `${hour}:00 UTC: ${num(row.requests)} requests, ${num(row.errors)} failed, ${usd(row.spend_usd || 0)}`,
+    });
+  }
+  const models = s.models.length
+    ? `<div class="tablewrap"><table><thead><tr><th>Model</th><th>Requests</th><th>Failed</th><th>Spend</th><th>Input tokens</th><th>Output tokens</th><th>Avg response</th></tr></thead><tbody>${s.models.map((m) => `<tr><td class="mono">${m.model === "unresolved" ? '<span class="muted">Rejected before a model was chosen</span>' : esc(m.model)}</td><td>${num(m.requests)}</td><td>${num(m.errors)}</td><td>${usd(m.spend_usd)}</td><td>${num(m.prompt_tokens)}</td><td>${num(m.completion_tokens)}</td><td>${ms(Math.round(m.avg_duration_ms))}</td></tr>`).join("")}</tbody></table></div>`
+    : '<div class="empty">No requests yet.</div>';
+  const scope = k.allowed_models.length
+    ? k.allowed_models.map(esc).join(", ")
+    : "All Go models";
+  modal(
+    `<h2>${esc(k.name)}</h2><small class="mono">${esc(k.prefix)}… · ${keyStatus(k)} · created ${when(k.created_at)}${k.expires_at ? " · expires " + when(k.expires_at * 1000) : ""}</small><div class="stats spacer">${tiles}</div><div class="detail-section"><h3>Spending caps</h3><div class="caps-list">${caps}</div></div><div class="grid-even"><div class="detail-section"><h3>Requests per day · last 30 days</h3>${barChart(days, "Requests per day for this key over 30 days")}</div><div class="detail-section"><h3>Requests per hour · last 24 hours</h3>${barChart(hours, "Requests per hour for this key over 24 hours")}</div></div><div class="detail-section"><h3>By model · all time</h3>${models}</div><div class="settings-list spacer"><div><span>Rate limit</span><strong>${k.rpm ? k.rpm + " requests / minute" : "Unlimited"}</strong></div><div><span>Allowed models</span><strong>${scope}</strong></div><div><span>First / last use</span><strong>${esc(t.first_day || "—")} / ${when(s.last_used_at)}</strong></div><div><span>Missing usage receipts</span><strong>${num(t.usage_missing)}</strong></div></div><div class="modal-actions"><button class="btn" data-key-logs="${esc(k.id)}">${icon("logs", 13)}View request logs</button><button class="btn primary" data-edit-key="${esc(k.id)}">Edit key</button></div>`,
+    true,
+  );
 }
 function keyForm(id) {
   const key = cache.keys?.find((k) => k.id === id),
     models = cache.models || [];
   modal(
-    `<h2>${key ? "Edit API key" : "Create an API key"}</h2><form id="key-form" data-id="${esc(id || "")}"><div class="formfield"><label for="key-name">Application name</label><input id="key-name" name="name" required maxlength="120" placeholder="e.g. Invoice backend" value="${esc(key?.name || "")}"></div><div class="detail-grid"><div class="formfield"><label for="key-rpm">Requests per minute</label><input id="key-rpm" name="rpm" type="number" min="0" max="100000" value="${key?.rpm ?? 60}"><small>0 means unlimited at the gateway. Go limits still apply.</small></div><div class="formfield"><label for="key-expiry">Expiration (optional)</label><input id="key-expiry" name="expiry" type="datetime-local" value="${key?.expires_at ? new Date(key.expires_at * 1000 - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16) : ""}"></div></div><div class="formfield"><label for="key-models">Allowed models (optional)</label><select id="key-models" name="models" multiple>${models.map((m) => `<option value="${esc(m.id)}" ${key?.allowed_models.includes(m.id) ? "selected" : ""}>${esc(m.name)}</option>`).join("")}</select><small>No selection allows all Go models. Hold Ctrl / Cmd to select multiple.</small></div><div class="modal-actions"><button class="btn" type="button" data-action="close">Cancel</button><button class="btn primary" type="submit">${key ? "Save changes" : "Create key"}</button></div></form>`,
+    `<h2>${key ? "Edit API key" : "Create an API key"}</h2><form id="key-form" data-id="${esc(id || "")}"><div class="formfield"><label for="key-name">Application name</label><input id="key-name" name="name" required maxlength="120" placeholder="e.g. Invoice backend" value="${esc(key?.name || "")}"></div><div class="detail-grid"><div class="formfield"><label for="key-rpm">Requests per minute</label><input id="key-rpm" name="rpm" type="number" min="0" max="100000" value="${key?.rpm ?? 60}"><small>0 means unlimited at the gateway. Go limits still apply.</small></div><div class="formfield"><label for="key-expiry">Expiration (optional)</label><input id="key-expiry" name="expiry" type="datetime-local" value="${key?.expires_at ? new Date(key.expires_at * 1000 - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16) : ""}"></div></div><fieldset class="caps"><legend>Spending caps (optional)</legend><div class="caps-grid">${[
+      ["hour", "Per hour"],
+      ["day", "Per day"],
+      ["month", "Per month"],
+    ]
+      .map(
+        ([w, label]) =>
+          `<div class="formfield"><label for="key-cap-${w}">${label} (USD)</label><input id="key-cap-${w}" name="cap_${w}" type="number" min="0.01" step="0.01" placeholder="No cap" value="${key?.["cap_" + w + "_usd"] ?? ""}"></div>`,
+      )
+      .join(
+        "",
+      )}</div><small>Spend = Go allowance + cash, counted in UTC hours, days and months. At a cap the key gets HTTP 429 until the window resets. Leave empty for no cap.</small></fieldset><div class="formfield"><label for="key-models">Allowed models (optional)</label><select id="key-models" name="models" multiple>${models.map((m) => `<option value="${esc(m.id)}" ${key?.allowed_models.includes(m.id) ? "selected" : ""}>${esc(m.name)}</option>`).join("")}</select><small>No selection allows all Go models. Hold Ctrl / Cmd to select multiple.</small></div><div class="modal-actions"><button class="btn" type="button" data-action="close">Cancel</button><button class="btn primary" type="submit">${key ? "Save changes" : "Create key"}</button></div></form>`,
   );
 }
 async function logsPage() {
@@ -629,6 +752,17 @@ document.addEventListener("click", async (e) => {
       keyForm(el.dataset.editKey);
       return;
     }
+    if (el.dataset.keyStats) {
+      await keyStats(el.dataset.keyStats);
+      return;
+    }
+    if (el.dataset.keyLogs) {
+      logKey = el.dataset.keyLogs;
+      page = 1;
+      closeModal();
+      await navigate("logs");
+      return;
+    }
     if (el.dataset.revoke) {
       if (
         !confirm("Revoke this API key? Applications using it will lose access.")
@@ -684,6 +818,10 @@ document.addEventListener("submit", async (e) => {
           ? Math.floor(new Date(expiry).getTime() / 1000)
           : null,
       };
+      for (const w of ["hour", "day", "month"]) {
+        const v = form.elements.namedItem("cap_" + w).value;
+        body["cap_" + w + "_usd"] = v === "" ? null : Number(v);
+      }
       const id = form.dataset.id;
       const r = await api("/keys" + (id ? "/" + id : ""), {
         method: id ? "PATCH" : "POST",

@@ -214,4 +214,16 @@ class Gateway(unittest.TestCase):
   for _ in range(10):self.call('POST','/admin/api/login',{'password':'wrong'},headers=attacker)
   self.assertEqual(self.call('POST','/admin/api/login',{'password':'wrong'},headers=attacker)[0],429)
   self.assertEqual(self.call('POST','/admin/api/login',{'password':PASSWORD},headers={'X-Forwarded-For':'198.51.100.7'})[0],200)
+ def test_33_spending_caps_and_key_stats(self):
+  for bad in [0,-1,'5']:self.assertEqual(self.call('POST','/admin/api/keys',{'name':'bad cap','cap_day_usd':bad},admin=True)[0],400)
+  created=self.new_key('capped',cap_hour_usd=0.001,rpm=0);key=created['key'];kid=created['data']['id'];self.assertEqual(created['data']['cap_hour_usd'],0.001)
+  body={'model':'deepseek/deepseek-v4.1-flash','messages':[{'role':'user','content':'Hello'}]}
+  self.assertEqual(self.call('POST','/api/v1/chat/completions',body,key=key)[0],200);time.sleep(.3)
+  s,h,v=self.call('POST','/api/v1/chat/completions',body,key=key);self.assertEqual(s,429);self.assertIn('hourly spending cap',v['error']['message']);self.assertGreater(int(h['Retry-After']),0)
+  s,_,v=self.call('GET','/api/v1/key',key=key);self.assertEqual(s,200);self.assertEqual(v['data']['limit'],0.001);self.assertEqual(v['data']['limit_reset'],'hourly');self.assertEqual(v['data']['limit_remaining'],0)
+  s,_,v=self.call('GET',f'/admin/api/keys/{kid}/stats',admin=True);self.assertEqual(s,200);self.assertEqual(v['totals']['requests'],2);self.assertEqual(v['totals']['errors'],1);self.assertAlmostEqual(v['caps'][0]['spent_usd'],.0015);self.assertIsNone(v['caps'][2]['cap_usd']);self.assertEqual(sum(r['requests'] for r in v['hourly']),2);self.assertIn('deepseek/deepseek-v4.1-flash',[m['model'] for m in v['models']]);self.assertIsNotNone(v['latency_24h']['p50_ms'])
+  s,_,v=self.call('GET','/admin/api/keys',admin=True);row=next(k for k in v['data'] if k['id']==kid);self.assertAlmostEqual(row['usage']['spend_month_usd'],.0015);self.assertIn('last_used_at',row['usage'])
+  self.assertEqual(self.call('PATCH',f'/admin/api/keys/{kid}',{'cap_hour_usd':None,'cap_month_usd':1},admin=True)[0],200)
+  self.assertEqual(self.call('POST','/api/v1/chat/completions',body,key=key)[0],200)
+  self.assertEqual(self.call('GET',f'/admin/api/keys/missing/stats',admin=True)[0],404)
 if __name__=='__main__':unittest.main(verbosity=2)

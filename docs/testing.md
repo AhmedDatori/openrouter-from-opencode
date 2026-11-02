@@ -8,13 +8,14 @@ real upstream functionality, browser behavior, and local gateway overhead.
 - **8 Rust unit tests:** SSE fragmentation, UTF-8/CRLF/multiline framing, usage chunk
   normalization, tool/reasoning fragments, stream errors, event size bounds, durable
   accounting after payload cleanup, and duplicate-log accounting protection.
-- **32 black-box integration tests:** a real HTTP gateway process against a local
+- **33 black-box integration tests:** a real HTTP gateway process against a local
   mock upstream. Covers authentication, model aliases/pagination, JSON/SSE, usage,
   tool history, structured-output parameter forwarding, fallback, provider constraints,
   unsupported features, key scopes/expiry/revocation/RPM, CSRF/origin checks, generation
   ownership, media inputs, Responses, Messages, legacy completions, native errors,
   redaction, concurrency, cancellation, idle timeouts, missing accounting receipts,
-  anonymous traffic not being stored, and per-client admin login limits.
+  anonymous traffic not being stored, per-client admin login limits, and per-key
+  spending caps and statistics.
 - **3 credential tests:** the dashboard Go-key lifecycle across restarts, safe errors
   for a malformed `.env`, and the non-interactive setup helper.
 - **8 published OpenAPI response contracts:** models, user models, providers, single

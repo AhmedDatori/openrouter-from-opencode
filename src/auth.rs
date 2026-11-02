@@ -46,6 +46,73 @@ pub fn bearer(headers: &HeaderMap) -> ApiResult<&str> {
         "Missing Authorization: Bearer <gateway-api-key>",
     ))
 }
+/// Next reset of a cap window ("hour", "day" or "month"), as RFC 3339 UTC.
+pub fn cap_reset(window: &str) -> String {
+    use chrono::{Datelike, Duration, TimeZone, Timelike, Utc};
+    let now = Utc::now();
+    let next = match window {
+        "hour" => {
+            now.with_minute(0)
+                .unwrap()
+                .with_second(0)
+                .unwrap()
+                .with_nanosecond(0)
+                .unwrap()
+                + Duration::hours(1)
+        }
+        "day" => {
+            Utc.from_utc_datetime(&now.date_naive().and_hms_opt(0, 0, 0).unwrap())
+                + Duration::days(1)
+        }
+        _ => {
+            let (y, m) = if now.month() == 12 {
+                (now.year() + 1, 1)
+            } else {
+                (now.year(), now.month() + 1)
+            };
+            Utc.with_ymd_and_hms(y, m, 1, 0, 0, 0).unwrap()
+        }
+    };
+    next.to_rfc3339()
+}
+/// Reject a request when the key has used up an hourly, daily or monthly spending cap.
+/// Spend is Go allowance plus cash for completed requests; requests already running
+/// are not counted yet, so a burst can overshoot a cap by the cost of those requests.
+pub async fn spending_caps(app: &App, key: &Key) -> ApiResult<()> {
+    let caps = [
+        ("hour", "hourly", key.cap_hour_usd),
+        ("day", "daily", key.cap_day_usd),
+        ("month", "monthly", key.cap_month_usd),
+    ];
+    if caps.iter().all(|(_, _, cap)| cap.is_none()) {
+        return Ok(());
+    }
+    let spend = app
+        .db
+        .key_spend(key.id.clone())
+        .await
+        .map_err(ApiError::internal)?;
+    for ((window, label, cap), spent) in caps.into_iter().zip([spend.hour, spend.day, spend.month])
+    {
+        if let Some(cap) = cap
+            && spent >= cap
+        {
+            let reset = cap_reset(window);
+            let wait = chrono::DateTime::parse_from_rfc3339(&reset)
+                .map(|t| (t.timestamp() - chrono::Utc::now().timestamp()).max(1))
+                .unwrap_or(60);
+            let mut e = ApiError::new(
+                429,
+                format!(
+                    "API key {label} spending cap reached: ${spent:.4} of ${cap:.2} used (UTC). Resets at {reset}."
+                ),
+            );
+            e.retry_after = Some(wait.to_string());
+            return Err(e);
+        }
+    }
+    Ok(())
+}
 pub async fn api_key(
     app: &App,
     headers: &HeaderMap,

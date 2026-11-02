@@ -42,8 +42,18 @@ local fake model; without it, it makes real paid calls. See [Testing](testing.md
 ## Gateway keys and models
 
 - Create one **API key** per application or person. Each key can have an expiry
-  date, a requests-per-minute limit (`0` means no limit) and a list of allowed models.
-  Revoking a key blocks new requests immediately.
+  date, a requests-per-minute limit (`0` means no limit), a list of allowed models,
+  and **spending caps** per hour, day and month. Revoking a key blocks new requests
+  immediately.
+- **Spending caps** limit how much of your Go plan one key can use. Spend is the Go
+  allowance plus any cash charged, counted in UTC calendar windows (this hour, today,
+  this month). When a key reaches a cap, its requests get `429` with a message naming
+  the cap and a `Retry-After` header until the window resets. Requests already running
+  when the cap is reached still finish, so a burst can go slightly over. Leave a cap
+  empty for no limit.
+- **Stats** on each key shows its requests, failures, spend, tokens, response times,
+  cap usage with reset times, requests per day (30 days) and per hour (24 hours), and
+  a per-model breakdown. **View request logs** opens that key's individual requests.
 - Replace the OpenCode Go key in **Setup & settings**. It applies to new requests
   immediately, with no restart.
 - Models come from `config/models.json`. To add one, edit the file, run
@@ -58,7 +68,10 @@ local fake model; without it, it makes real paid calls. See [Testing](testing.md
   program in `data\go-router-before-update.exe`, and restarts the gateway.
 - **Linux:** see [Update to a new release](setup-linux.md#update-to-a-new-release).
 
-`.env`, the database and the admin password are never touched by updates.
+`.env`, the database and the admin password are never touched by updates. Newer
+versions upgrade the database automatically on first start. After upgrading to
+v0.4.0 or later, do not go back to an older version: it cannot create keys in the
+upgraded database.
 
 ## Backups
 
@@ -103,6 +116,7 @@ buffering off. The provided Caddy configurations already do this.
 | Login works but you are signed out immediately | `COOKIE_SECURE=true` on a plain `http://` address. |
 | `429 Too many admin login attempts` | 10 attempts per minute per client. Wait a minute. |
 | `401 Invalid API key` | The key was mistyped, revoked or expired. |
+| `429 API key hourly/daily/monthly spending cap reached` | The key used its cap. Wait for the reset time in the message, or raise the cap under **API keys > Edit**. |
 | `429 Gateway concurrency limit reached` | All slots busy. Retry, or raise `MAX_CONCURRENT_REQUESTS`. |
 | `429` or `503` mentioning OpenCode | Go plan limit reached or model unavailable. Respect `Retry-After`. |
 | `503 OpenCode Go is not configured` | Save the Go key in **Setup & settings**. |

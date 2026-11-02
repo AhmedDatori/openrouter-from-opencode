@@ -125,6 +125,19 @@ pub async fn key_info(
     headers: HeaderMap,
 ) -> ApiResult<Json<Value>> {
     let k = auth::api_key(&app, &headers, Some(&ctx), false).await?;
+    let spend = app
+        .db
+        .key_spend(k.id.clone())
+        .await
+        .map_err(ApiError::internal)?;
+    // OpenRouter reports one limit; use the longest configured cap window.
+    let (limit, used, reset) = match (k.cap_month_usd, k.cap_day_usd, k.cap_hour_usd) {
+        (Some(c), _, _) => (Some(c), spend.month, Some("monthly")),
+        (None, Some(c), _) => (Some(c), spend.day, Some("daily")),
+        (None, None, Some(c)) => (Some(c), spend.hour, Some("hourly")),
+        _ => (None, 0.0, None),
+    };
+    let remaining = limit.map(|c| (c - used).max(0.0));
     let id = k.id.clone();
     let now = chrono::Utc::now().date_naive();
     let today = now.to_string();
@@ -132,7 +145,7 @@ pub async fn key_info(
     let month = now.format("%Y-%m-01").to_string();
     let usage=app.db.call(move|c|{Ok(c.query_row("SELECT coalesce(sum(cash),0),coalesce(sum(list_cost),0),coalesce(sum(allowance),0),coalesce(sum(CASE WHEN day>=?2 THEN cash ELSE 0 END),0),coalesce(sum(CASE WHEN day>=?3 THEN cash ELSE 0 END),0),coalesce(sum(CASE WHEN day>=?4 THEN cash ELSE 0 END),0) FROM usage_daily WHERE key_id=?1",rusqlite::params![id,today,week,month],|r|Ok((r.get::<_,f64>(0)?,r.get::<_,f64>(1)?,r.get::<_,f64>(2)?,r.get::<_,f64>(3)?,r.get::<_,f64>(4)?,r.get::<_,f64>(5)?)))?)}).await.map_err(ApiError::internal)?;
     Ok(Json(
-        json!({"data":{"label":k.name,"is_free_tier":false,"limit":null,"limit_remaining":null,"limit_reset":null,"usage":usage.0,"usage_daily":usage.3,"usage_weekly":usage.4,"usage_monthly":usage.5,"byok_usage":0,"byok_usage_daily":0,"byok_usage_weekly":0,"byok_usage_monthly":0,"is_management_key":false,"is_provisioning_key":false,"include_byok_in_limit":false,"budgets":[],"effective_budget":null,"creator_user_id":null,"organization_id":null,"workspace_id":null,"allowed_data_regions":["global","us","europe"],"free_model_daily_requests":{"used":0,"limit":0,"remaining":0},"rate_limit":{"requests":k.rpm,"interval":"1m","note":"Gateway-local RPM. 0 means unlimited locally; upstream Go limits still apply."},"expires_at":k.expires_at.and_then(|t|chrono::DateTime::from_timestamp(t,0)).map(|t|t.to_rfc3339()),"go_router":{"key_id":k.id,"list_cost_usd":usage.1,"allowance_usd":usage.2,"allowed_models":k.allowed_models,"upstream_quota_remaining":null,"scope_note":"These are local key policies. OpenRouter :free/BYOK/organization counters do not apply and are zero/null. Upstream Go quota and region settings remain independent."}}}),
+        json!({"data":{"label":k.name,"is_free_tier":false,"limit":limit,"limit_remaining":remaining,"limit_reset":reset,"usage":usage.0,"usage_daily":usage.3,"usage_weekly":usage.4,"usage_monthly":usage.5,"byok_usage":0,"byok_usage_daily":0,"byok_usage_weekly":0,"byok_usage_monthly":0,"is_management_key":false,"is_provisioning_key":false,"include_byok_in_limit":false,"budgets":[],"effective_budget":null,"creator_user_id":null,"organization_id":null,"workspace_id":null,"allowed_data_regions":["global","us","europe"],"free_model_daily_requests":{"used":0,"limit":0,"remaining":0},"rate_limit":{"requests":k.rpm,"interval":"1m","note":"Gateway-local RPM. 0 means unlimited locally; upstream Go limits still apply."},"expires_at":k.expires_at.and_then(|t|chrono::DateTime::from_timestamp(t,0)).map(|t|t.to_rfc3339()),"go_router":{"key_id":k.id,"list_cost_usd":usage.1,"allowance_usd":usage.2,"allowed_models":k.allowed_models,"spending_caps_usd":{"hour":k.cap_hour_usd,"day":k.cap_day_usd,"month":k.cap_month_usd},"spend_usd":spend,"upstream_quota_remaining":null,"scope_note":"These are local key policies. OpenRouter :free/BYOK/organization counters do not apply and are zero/null. Upstream Go quota and region settings remain independent."}}}),
     ))
 }
 pub async fn generation(

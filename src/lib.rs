@@ -171,6 +171,7 @@ pub fn router(app: App) -> Router {
             "/keys/{id}",
             patch(admin::update_key).delete(admin::delete_key),
         )
+        .route("/keys/{id}/stats", get(admin::key_stats))
         .route("/logs", get(admin::logs))
         .route("/logs/{id}", get(admin::log))
         .route("/models", get(admin::models))

@@ -35,7 +35,9 @@ If the Go key leaks, rotate it in the OpenCode console and save the new one in
   Content Security Policy, no external scripts or fonts, `no-store` caching.
 - Admin login: 10 attempts per minute per client address; at most two password
   checks run at once.
-- API keys: optional expiry, requests-per-minute limit and allowed-model list.
+- API keys: optional expiry, requests-per-minute limit, allowed-model list and
+  spending caps per hour, day and month, so one leaked or runaway key cannot use
+  the whole Go plan.
   Revocation stops new requests immediately (streams already running finish).
 - Requests without a valid key are rejected before any upstream call and are not
   stored, so anonymous traffic cannot fill the database.

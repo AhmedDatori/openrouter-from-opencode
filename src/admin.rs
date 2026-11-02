@@ -151,9 +151,47 @@ pub async fn stats(State(app): State<App>, headers: HeaderMap) -> ApiResult<Json
 }
 pub async fn keys(State(app): State<App>, headers: HeaderMap) -> ApiResult<Json<Value>> {
     auth::admin(&app, &headers, false).await?;
-    Ok(Json(
-        json!({"data":app.db.keys().await.map_err(ApiError::internal)?}),
-    ))
+    let keys = app.db.keys().await.map_err(ApiError::internal)?;
+    let usage = app.db.key_summaries().await.map_err(ApiError::internal)?;
+    let data: Vec<Value> = keys
+        .into_iter()
+        .map(|k| {
+            let mut v = json!(k);
+            v["usage"] = usage.get(&k.id).cloned().unwrap_or_else(|| json!({}));
+            v
+        })
+        .collect();
+    Ok(Json(json!({ "data": data })))
+}
+/// Detailed statistics for one key: lifetime totals, cap usage, daily/hourly activity,
+/// per-model breakdown and recent latency.
+pub async fn key_stats(
+    State(app): State<App>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> ApiResult<Json<Value>> {
+    auth::admin(&app, &headers, false).await?;
+    let key = app
+        .db
+        .keys()
+        .await
+        .map_err(ApiError::internal)?
+        .into_iter()
+        .find(|k| k.id == id)
+        .ok_or_else(|| ApiError::new(404, "API key not found"))?;
+    let spend = app
+        .db
+        .key_spend(id.clone())
+        .await
+        .map_err(ApiError::internal)?;
+    let mut stats = app.db.key_stats(id).await.map_err(ApiError::internal)?;
+    stats["key"] = json!(key);
+    stats["caps"] = json!([
+        {"window":"hour","cap_usd":key.cap_hour_usd,"spent_usd":spend.hour,"resets_at":auth::cap_reset("hour")},
+        {"window":"day","cap_usd":key.cap_day_usd,"spent_usd":spend.day,"resets_at":auth::cap_reset("day")},
+        {"window":"month","cap_usd":key.cap_month_usd,"spent_usd":spend.month,"resets_at":auth::cap_reset("month")},
+    ]);
+    Ok(Json(stats))
 }
 fn validate_key(app: &App, body: &mut Value, create: bool) -> ApiResult<()> {
     if create || body.get("name").is_some() {
@@ -170,6 +208,16 @@ fn validate_key(app: &App, body: &mut Value, create: bool) -> ApiResult<()> {
         return Err(ApiError::bad(
             "rpm must be an integer from 0 to 100000 (0 means unlimited)",
         ));
+    }
+    for cap in ["cap_hour_usd", "cap_day_usd", "cap_month_usd"] {
+        if let Some(v) = body.get(cap)
+            && !v.is_null()
+            && v.as_f64().is_none_or(|n| !(n > 0.0 && n <= 1_000_000.0))
+        {
+            return Err(ApiError::bad(format!(
+                "{cap} must be null (no cap) or a USD amount above 0"
+            )));
+        }
     }
     if let Some(v) = body.get("disabled")
         && !v.is_boolean()
@@ -220,6 +268,9 @@ pub async fn create_key(State(app): State<App>, req: Request) -> ApiResult<Json<
         rpm: body["rpm"].as_u64().unwrap_or(60) as u32,
         allowed_models: serde_json::from_value(body["allowed_models"].clone()).unwrap_or_default(),
         expires_at: body["expires_at"].as_i64(),
+        cap_hour_usd: body["cap_hour_usd"].as_f64(),
+        cap_day_usd: body["cap_day_usd"].as_f64(),
+        cap_month_usd: body["cap_month_usd"].as_f64(),
     };
     let key = app
         .db

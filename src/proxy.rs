@@ -134,6 +134,7 @@ async fn handle(app: App, ctx: Context, req: Request, kind: Kind) -> ApiResult<R
     ctx.edit(|r| r.kind = "inference".into());
     let headers = req.headers().clone();
     let key = auth::api_key(&app, &headers, Some(&ctx), true).await?;
+    auth::spending_caps(&app, &key).await?;
     let upstream_key = app.upstream.read().unwrap().key.clone();
     if upstream_key.is_empty() {
         return Err(ApiError::new(

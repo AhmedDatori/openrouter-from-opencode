@@ -31,7 +31,19 @@ pub struct Key {
     pub rpm: u32,
     pub allowed_models: Vec<String>,
     pub expires_at: Option<i64>,
+    /// Spending caps in USD (Go allowance + cash) per UTC hour, day and month; None = no cap.
+    pub cap_hour_usd: Option<f64>,
+    pub cap_day_usd: Option<f64>,
+    pub cap_month_usd: Option<f64>,
 }
+/// A key's spend (Go allowance + cash, USD) in the current UTC hour, day and month.
+#[derive(Clone, Copy, Debug, Default, Serialize)]
+pub struct Spend {
+    pub hour: f64,
+    pub day: f64,
+    pub month: f64,
+}
+const KEY_COLUMNS: &str = "id,name,prefix,created_at,disabled,rpm,allowed_models,expires_at,cap_hour_usd,cap_day_usd,cap_month_usd";
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Log {
     pub id: String,
@@ -117,7 +129,19 @@ impl Db {
           CREATE TABLE IF NOT EXISTS usage_daily(day TEXT NOT NULL, key_id TEXT NOT NULL, model TEXT NOT NULL, requests INTEGER NOT NULL DEFAULT 0, errors INTEGER NOT NULL DEFAULT 0, cash REAL NOT NULL DEFAULT 0, list_cost REAL NOT NULL DEFAULT 0, allowance REAL NOT NULL DEFAULT 0, prompt_tokens INTEGER NOT NULL DEFAULT 0, completion_tokens INTEGER NOT NULL DEFAULT 0, usage_missing INTEGER NOT NULL DEFAULT 0, duration_ms INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(day,key_id,model));
           CREATE TABLE IF NOT EXISTS admin_events(id INTEGER PRIMARY KEY, created_at TEXT DEFAULT CURRENT_TIMESTAMP, action TEXT NOT NULL, details TEXT NOT NULL);
           CREATE TABLE IF NOT EXISTS gateway_secrets(name TEXT PRIMARY KEY, value TEXT NOT NULL);
-          PRAGMA user_version=1;")?;
+          CREATE INDEX IF NOT EXISTS usage_key ON usage_daily(key_id,day);")?;
+        // Version 2: per-key spending caps.
+        let has_caps = conn
+            .prepare("SELECT 1 FROM pragma_table_info('api_keys') WHERE name='cap_hour_usd'")?
+            .exists([])?;
+        if !has_caps {
+            conn.execute_batch(
+                "ALTER TABLE api_keys ADD COLUMN cap_hour_usd REAL;
+                 ALTER TABLE api_keys ADD COLUMN cap_day_usd REAL;
+                 ALTER TABLE api_keys ADD COLUMN cap_month_usd REAL;",
+            )?;
+        }
+        conn.execute_batch("PRAGMA user_version=2;")?;
         let (tx, rx) = mpsc::channel::<Job>();
         let pending = Arc::new(AtomicUsize::new(0));
         let done = pending.clone();
@@ -205,15 +229,30 @@ impl Db {
         }).await
     }
     pub async fn find_key(&self, hash: String) -> Result<Option<Key>> {
-        self.call(move|c|c.query_row("SELECT id,name,prefix,created_at,disabled,rpm,allowed_models,expires_at FROM api_keys WHERE hash=?1",[hash],key_row).optional().map_err(Into::into)).await
+        self.call(move |c| {
+            c.query_row(
+                &format!("SELECT {KEY_COLUMNS} FROM api_keys WHERE hash=?1"),
+                [hash],
+                key_row,
+            )
+            .optional()
+            .map_err(Into::into)
+        })
+        .await
     }
     pub async fn keys(&self) -> Result<Vec<Key>> {
-        self.call(|c|{let mut q=c.prepare("SELECT id,name,prefix,created_at,disabled,rpm,allowed_models,expires_at FROM api_keys ORDER BY created_at DESC")?;Ok(q.query_map([],key_row)?.collect::<rusqlite::Result<_>>()?)}).await
+        self.call(|c| {
+            let mut q = c.prepare(&format!(
+                "SELECT {KEY_COLUMNS} FROM api_keys ORDER BY created_at DESC"
+            ))?;
+            Ok(q.query_map([], key_row)?.collect::<rusqlite::Result<_>>()?)
+        })
+        .await
     }
     pub async fn create_key(&self, key: Key, hash: String) -> Result<Key> {
         self.call(move |c| {
             c.execute(
-                "INSERT INTO api_keys VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)",
+                "INSERT INTO api_keys(id,hash,name,prefix,created_at,disabled,rpm,allowed_models,expires_at,cap_hour_usd,cap_day_usd,cap_month_usd) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)",
                 params![
                     key.id,
                     hash,
@@ -223,7 +262,10 @@ impl Db {
                     key.disabled,
                     key.rpm,
                     serde_json::to_string(&key.allowed_models)?,
-                    key.expires_at
+                    key.expires_at,
+                    key.cap_hour_usd,
+                    key.cap_day_usd,
+                    key.cap_month_usd
                 ],
             )?;
             Ok(key)
@@ -232,14 +274,17 @@ impl Db {
     }
     pub async fn update_key(&self, id: String, patch: Value) -> Result<Option<Key>> {
         self.call(move|c|{
-            let old=c.query_row("SELECT id,name,prefix,created_at,disabled,rpm,allowed_models,expires_at FROM api_keys WHERE id=?1",[&id],key_row).optional()?;
+            let old=c.query_row(&format!("SELECT {KEY_COLUMNS} FROM api_keys WHERE id=?1"),[&id],key_row).optional()?;
             let Some(mut k)=old else{return Ok(None)};
             if let Some(v)=patch.get("name").and_then(Value::as_str){k.name=v.into()}
             if let Some(v)=patch.get("disabled").and_then(Value::as_bool){k.disabled=v}
             if let Some(v)=patch.get("rpm").and_then(Value::as_u64){k.rpm=v as u32}
             if let Some(v)=patch.get("allowed_models"){k.allowed_models=serde_json::from_value(v.clone())?}
             if let Some(v)=patch.get("expires_at"){k.expires_at=v.as_i64()}
-            c.execute("UPDATE api_keys SET name=?2,disabled=?3,rpm=?4,allowed_models=?5,expires_at=?6 WHERE id=?1",params![id,k.name,k.disabled,k.rpm,serde_json::to_string(&k.allowed_models)?,k.expires_at])?;Ok(Some(k))
+            if let Some(v)=patch.get("cap_hour_usd"){k.cap_hour_usd=v.as_f64()}
+            if let Some(v)=patch.get("cap_day_usd"){k.cap_day_usd=v.as_f64()}
+            if let Some(v)=patch.get("cap_month_usd"){k.cap_month_usd=v.as_f64()}
+            c.execute("UPDATE api_keys SET name=?2,disabled=?3,rpm=?4,allowed_models=?5,expires_at=?6,cap_hour_usd=?7,cap_day_usd=?8,cap_month_usd=?9 WHERE id=?1",params![id,k.name,k.disabled,k.rpm,serde_json::to_string(&k.allowed_models)?,k.expires_at,k.cap_hour_usd,k.cap_day_usd,k.cap_month_usd])?;Ok(Some(k))
         }).await
     }
     pub async fn delete_key(&self, id: String) -> Result<bool> {
@@ -306,6 +351,90 @@ impl Db {
     pub async fn log(&self, id: String, key_id: Option<String>) -> Result<Option<Value>> {
         self.call(move|c|{let s:Option<String>=c.query_row("SELECT body FROM logs WHERE (id=?1 OR upstream_id=?1) AND (?2 IS NULL OR key_id=?2) ORDER BY created_at DESC LIMIT 1",params![id,key_id],|r|r.get(0)).optional()?;s.map(|s|serde_json::from_str(&s).map_err(Into::into)).transpose()}).await
     }
+    /// Spend of one key in the current UTC hour, day and month. Hourly figures come from
+    /// request logs; daily and monthly figures from the durable daily totals.
+    pub async fn key_spend(&self, key_id: String) -> Result<Spend> {
+        let (hour, day, month) = windows();
+        self.call(move |c| {
+            Ok(c.query_row(
+                "SELECT (SELECT coalesce(sum(coalesce(allowance,0)+coalesce(cash,0)),0) FROM logs WHERE key_id=?1 AND created_at>=?2),
+                        coalesce(sum(CASE WHEN day=?3 THEN allowance+cash ELSE 0 END),0),
+                        coalesce(sum(allowance+cash),0)
+                 FROM usage_daily WHERE key_id=?1 AND day>=?4",
+                params![key_id, hour, day, month],
+                |r| Ok(Spend { hour: r.get(0)?, day: r.get(1)?, month: r.get(2)? }),
+            )?)
+        })
+        .await
+    }
+    /// Per-key usage for the key list: spend today and this month, requests this month, last use.
+    pub async fn key_summaries(&self) -> Result<Value> {
+        let (_, day, month) = windows();
+        self.call(move |c| {
+            let mut out = serde_json::Map::new();
+            let mut q = c.prepare(
+                "SELECT key_id, sum(CASE WHEN day=?1 THEN allowance+cash ELSE 0 END), sum(CASE WHEN day>=?2 THEN allowance+cash ELSE 0 END),
+                        sum(CASE WHEN day>=?2 THEN requests ELSE 0 END), sum(requests)
+                 FROM usage_daily GROUP BY key_id",
+            )?;
+            let rows = q.query_map(params![day, month], |r| {
+                Ok((r.get::<_, String>(0)?, json!({"spend_day_usd":r.get::<_,f64>(1)?,"spend_month_usd":r.get::<_,f64>(2)?,"requests_month":r.get::<_,i64>(3)?,"requests_total":r.get::<_,i64>(4)?})))
+            })?;
+            for row in rows {
+                let (id, v) = row?;
+                out.insert(id, v);
+            }
+            let mut q = c.prepare("SELECT key_id, max(created_at) FROM logs WHERE key_id IS NOT NULL GROUP BY key_id")?;
+            let rows = q.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
+            for row in rows {
+                let (id, last) = row?;
+                out.entry(id).or_insert_with(|| json!({}))["last_used_at"] = json!(last);
+            }
+            Ok(Value::Object(out))
+        })
+        .await
+    }
+    /// Detailed usage statistics for one key, for the dashboard's key statistics view.
+    pub async fn key_stats(&self, key_id: String) -> Result<Value> {
+        self.call(move |c| {
+            let totals = c.query_row(
+                "SELECT coalesce(sum(requests),0),coalesce(sum(errors),0),coalesce(sum(cash),0),coalesce(sum(list_cost),0),coalesce(sum(allowance),0),
+                        coalesce(sum(prompt_tokens),0),coalesce(sum(completion_tokens),0),coalesce(1.0*sum(duration_ms)/nullif(sum(requests),0),0),
+                        coalesce(sum(usage_missing),0),min(day),max(day)
+                 FROM usage_daily WHERE key_id=?1",
+                [&key_id],
+                |r| Ok(json!({"requests":r.get::<_,i64>(0)?,"errors":r.get::<_,i64>(1)?,"cash_usd":r.get::<_,f64>(2)?,"list_usd":r.get::<_,f64>(3)?,"allowance_usd":r.get::<_,f64>(4)?,
+                    "prompt_tokens":r.get::<_,i64>(5)?,"completion_tokens":r.get::<_,i64>(6)?,"avg_duration_ms":r.get::<_,f64>(7)?,"usage_missing":r.get::<_,i64>(8)?,
+                    "first_day":r.get::<_,Option<String>>(9)?,"last_day":r.get::<_,Option<String>>(10)?})),
+            )?;
+            let since = (chrono::Utc::now() - chrono::Duration::days(29)).format("%Y-%m-%d").to_string();
+            let mut q = c.prepare(
+                "SELECT day,sum(requests),sum(errors),sum(allowance+cash),sum(prompt_tokens),sum(completion_tokens)
+                 FROM usage_daily WHERE key_id=?1 AND day>=?2 GROUP BY day ORDER BY day",
+            )?;
+            let daily = q.query_map(params![key_id, since], |r| Ok(json!({"date":r.get::<_,String>(0)?,"requests":r.get::<_,i64>(1)?,"errors":r.get::<_,i64>(2)?,"spend_usd":r.get::<_,f64>(3)?,"prompt_tokens":r.get::<_,i64>(4)?,"completion_tokens":r.get::<_,i64>(5)?})))?.collect::<rusqlite::Result<Vec<_>>>()?;
+            let mut q = c.prepare(
+                "SELECT model,sum(requests),sum(errors),sum(allowance+cash),sum(prompt_tokens),sum(completion_tokens),coalesce(1.0*sum(duration_ms)/nullif(sum(requests),0),0)
+                 FROM usage_daily WHERE key_id=?1 GROUP BY model ORDER BY sum(requests) DESC",
+            )?;
+            let models = q.query_map([&key_id], |r| Ok(json!({"model":r.get::<_,String>(0)?,"requests":r.get::<_,i64>(1)?,"errors":r.get::<_,i64>(2)?,"spend_usd":r.get::<_,f64>(3)?,"prompt_tokens":r.get::<_,i64>(4)?,"completion_tokens":r.get::<_,i64>(5)?,"avg_duration_ms":r.get::<_,f64>(6)?})))?.collect::<rusqlite::Result<Vec<_>>>()?;
+            let day_ago = (chrono::Utc::now() - chrono::Duration::hours(23)).format("%Y-%m-%dT%H:00:00+00:00").to_string();
+            let mut q = c.prepare(
+                "SELECT substr(created_at,1,13),count(*),sum(CASE WHEN status>=400 OR outcome!='completed' THEN 1 ELSE 0 END),coalesce(sum(coalesce(allowance,0)+coalesce(cash,0)),0)
+                 FROM logs WHERE key_id=?1 AND kind='inference' AND created_at>=?2 GROUP BY 1 ORDER BY 1",
+            )?;
+            let hourly = q.query_map(params![key_id, day_ago], |r| Ok(json!({"hour":r.get::<_,String>(0)?,"requests":r.get::<_,i64>(1)?,"errors":r.get::<_,i64>(2)?,"spend_usd":r.get::<_,f64>(3)?})))?.collect::<rusqlite::Result<Vec<_>>>()?;
+            let mut q = c.prepare(
+                "SELECT duration_ms FROM logs WHERE key_id=?1 AND kind='inference' AND status<400 AND outcome='completed' AND created_at>=?2 ORDER BY duration_ms LIMIT 100000",
+            )?;
+            let durations = q.query_map(params![key_id, day_ago], |r| r.get::<_, i64>(0))?.collect::<rusqlite::Result<Vec<_>>>()?;
+            let pct = |p: f64| (!durations.is_empty()).then(|| durations[((durations.len() as f64 * p).ceil() as usize).clamp(1, durations.len()) - 1]);
+            let last_used: Option<String> = c.query_row("SELECT max(created_at) FROM logs WHERE key_id=?1", [&key_id], |r| r.get(0))?;
+            Ok(json!({"totals":totals,"daily":daily,"models":models,"hourly":hourly,
+                "latency_24h":{"requests":durations.len(),"p50_ms":pct(0.5),"p95_ms":pct(0.95)},"last_used_at":last_used}))
+        })
+        .await
+    }
     pub async fn stats(&self) -> Result<Value> {
         self.call(|c| {
             let totals=c.query_row("SELECT coalesce(sum(requests),0),coalesce(sum(errors),0),coalesce(sum(cash),0),coalesce(sum(list_cost),0),coalesce(sum(allowance),0),coalesce(sum(prompt_tokens),0),coalesce(sum(completion_tokens),0),coalesce(1.0*sum(duration_ms)/nullif(sum(requests),0),0),coalesce(sum(usage_missing),0) FROM usage_daily",[],|r|Ok(json!({"requests":r.get::<_,i64>(0)?,"errors":r.get::<_,i64>(1)?,"cash_usd":r.get::<_,f64>(2)?,"list_usd":r.get::<_,f64>(3)?,"allowance_usd":r.get::<_,f64>(4)?,"prompt_tokens":r.get::<_,i64>(5)?,"completion_tokens":r.get::<_,i64>(6)?,"avg_duration_ms":r.get::<_,f64>(7)?,"usage_missing":r.get::<_,i64>(8)?})))?;
@@ -348,7 +477,19 @@ fn key_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Key> {
         rpm: r.get(5)?,
         allowed_models: serde_json::from_str(&models).unwrap_or_default(),
         expires_at: r.get(7)?,
+        cap_hour_usd: r.get(8)?,
+        cap_day_usd: r.get(9)?,
+        cap_month_usd: r.get(10)?,
     })
+}
+/// Start of the current UTC hour (RFC 3339, comparable with `logs.created_at`), day and month.
+pub fn windows() -> (String, String, String) {
+    let now = chrono::Utc::now();
+    (
+        now.format("%Y-%m-%dT%H:00:00+00:00").to_string(),
+        now.format("%Y-%m-%d").to_string(),
+        now.format("%Y-%m-01").to_string(),
+    )
 }
 
 #[cfg(test)]

@@ -25,10 +25,11 @@ flowchart LR
   structured output, reasoning, images, audio and PDF input, model fallbacks, plus
   native Responses and Anthropic Messages endpoints. Works with the OpenAI and
   OpenRouter SDKs.
-- **Separate keys per app:** each with its own expiry, rate limit and allowed models.
-  Your OpenCode Go key never leaves the server.
-- **Dashboard:** keys, request logs, cash cost vs. Go allowance per request, model
-  catalog, admin audit log and a live **Server monitor** (CPU, memory, latency).
+- **Separate keys per app:** each with its own expiry, rate limit, allowed models and
+  spending caps per hour, day and month. Your OpenCode Go key never leaves the server.
+- **Dashboard:** keys with per-key statistics (spend, requests, tokens, latency, daily
+  and hourly charts, per-model breakdown), request logs, cash cost vs. Go allowance per
+  request, model catalog, admin audit log and a live **Server monitor** (CPU, memory, latency).
 - **Secure defaults:** HTTPS through Caddy, gateway on `127.0.0.1` only, hashed keys,
   Argon2 admin password, CSRF and origin checks, strict CSP.
 

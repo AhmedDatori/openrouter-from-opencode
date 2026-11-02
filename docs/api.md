@@ -10,6 +10,13 @@ OpenRouter catalog. Supplying a key to `/models` filters it to that key's model 
 
 A gateway API key is created in the admin dashboard. It is not your Go API key.
 
+A key can have spending caps per UTC hour, day and month. When one is reached,
+inference requests return `429` with `Retry-After` set to the seconds until the
+window resets. `GET /api/v1/key` reports the longest configured cap as OpenRouter's
+`limit`, `limit_remaining` and `limit_reset` (`monthly`, `daily` or `hourly`), and
+all caps plus current spend under `go_router.spending_caps_usd` and
+`go_router.spend_usd`.
+
 ## Chat
 
 ```json
