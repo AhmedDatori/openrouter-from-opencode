@@ -23,7 +23,6 @@ $root = Split-Path -Parent $PSScriptRoot
 Set-Location -LiteralPath $root
 [Environment]::CurrentDirectory = $root
 $iisRoot = Join-Path $root 'iis'
-$exe = Join-Path $root 'go-router.exe'
 
 # 1. Preconditions: IIS with the ASP.NET Core Module, no other Go Router installation.
 if (!(Get-Service -Name W3SVC -ErrorAction SilentlyContinue)) { throw 'IIS is not installed on this server.' }
@@ -81,43 +80,9 @@ if (!(Test-Path -LiteralPath (Join-Path $root '.env'))) {
     Write-Host ".env already exists and was left unchanged. Check that PUBLIC_URL is https://$Domain"
 }
 
-# 6. web.config: IIS forwards every request to go-router.exe on a private loopback port.
+# 6. iis\web.config (shipped with the project) forwards every request to go-router.exe.
 #    The site folder holds only this file, so IIS can never serve .env or data\.
-New-Item -ItemType Directory -Path $iisRoot -Force | Out-Null
-$logs = Join-Path $root 'data\logs\stdout'
-$webConfig = @"
-<?xml version="1.0" encoding="utf-8"?>
-<configuration>
-  <location path="." inheritInChildApplications="false">
-    <system.webServer>
-      <handlers>
-        <remove name="aspNetCore" />
-        <add name="aspNetCore" path="*" verb="*" modules="AspNetCoreModuleV2" resourceType="Unspecified" />
-      </handlers>
-      <!-- Long requestTimeout: model answers can stream for many minutes. -->
-      <aspNetCore processPath="$exe" hostingModel="outofprocess"
-                  requestTimeout="00:20:00" startupTimeLimit="60" shutdownTimeLimit="30"
-                  stdoutLogEnabled="true" stdoutLogFile="$logs" />
-      <!-- Compression would buffer streamed answers. -->
-      <urlCompression doStaticCompression="false" doDynamicCompression="false" />
-      <security>
-        <requestFiltering>
-          <requestLimits maxAllowedContentLength="26214400" />
-        </requestFiltering>
-      </security>
-      <httpProtocol>
-        <customHeaders>
-          <remove name="X-Powered-By" />
-          <remove name="Strict-Transport-Security" />
-          <add name="Strict-Transport-Security" value="max-age=31536000" />
-        </customHeaders>
-      </httpProtocol>
-    </system.webServer>
-  </location>
-</configuration>
-"@
-$utf8 = New-Object Text.UTF8Encoding($false)
-[IO.File]::WriteAllText((Join-Path $iisRoot 'web.config'), $webConfig, $utf8)
+if (!(Test-Path -LiteralPath (Join-Path $iisRoot 'web.config'))) { throw 'iis\web.config is missing. Download the project again.' }
 
 # 7. Application pool: no .NET runtime, LocalService account, never idles or recycles
 #    on a timer (a recycle would cut streams that are in progress).

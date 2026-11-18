@@ -90,37 +90,13 @@ The execution-policy flag applies only to that one command; no system policy cha
 
 ## Install in IIS (servers that already run IIS)
 
-Use this instead of step 4 when IIS already serves websites on ports 80 and 443. IIS
-then runs the gateway like any other site: it starts `go-router.exe`, restarts it if it
-stops, and serves HTTPS with a certificate already installed on the server.
-
-You need:
-
-- The **ASP.NET Core Hosting Bundle** (any recent version). Servers that already host
-  .NET websites usually have it. If the install says it is missing, install it from
-  <https://dotnet.microsoft.com/download/dotnet>, run `iisreset`, and retry.
-- A certificate in the server's certificate store that covers your domain, for example
-  a `*.example.com` wildcard. The script finds it automatically.
+When IIS already serves websites on ports 80 and 443, run the gateway as an IIS website
+instead of step 4. Follow [Set up in IIS Manager](setup-iis.md) to do it with the IIS
+user interface, or run the same setup in one command:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\install-iis-windows.ps1 -Domain api.example.com
 ```
-
-The script:
-
-1. Checks IIS, the ASP.NET Core Module, and that no other site uses the domain.
-2. Locks the folder permissions and picks the newest valid certificate for the domain.
-3. Downloads `go-router.exe` (checksum verified) and creates `.env` and the admin password.
-4. Creates `C:\go-router\iis\web.config` (the site folder holds only this file, so IIS
-   can never serve `.env` or `data\`).
-5. Creates the **GoRouter** application pool (LocalService account, no idle shutdown, no
-   timed recycling) and the **GoRouter** HTTPS site for the domain only.
-6. Waits until `https://<domain>/healthz` answers.
-
-It ends with `Installed in IIS. Admin: https://api.example.com/admin ...`. Continue with
-step 5. Updates use the same `update-windows.ps1` command; it pauses the site with
-`app_offline.htm` while it replaces the program. When the certificate is renewed in IIS,
-update the binding of the **GoRouter** site like any other site.
 
 ## 5. Sign in and connect OpenCode Go
 

@@ -97,6 +97,7 @@ intended for coding agents and monitors traffic; check its
 |---|---|
 | [How it works](docs/how-it-works.md) | Architecture, request flow, source code map, data on disk |
 | [Windows setup](docs/setup-windows.md) / [Linux setup](docs/setup-linux.md) | New server from scratch |
+| [Set up in IIS Manager](docs/setup-iis.md) | Windows servers that already run IIS, using only the IIS user interface |
 | [Operations](docs/operations.md) | Logs, monitoring, updates, backups, limits, troubleshooting |
 | [API](docs/api.md) / [Compatibility](docs/compatibility.md) | Endpoints, parameters, differences from OpenRouter |
 | [Testing](docs/testing.md) | Test suites, load test and measured results |
