@@ -16,14 +16,14 @@ jobs:
         with:
           persist-credentials: false
       - name: Install Rust
-        run: rustup toolchain install 1.88 --profile minimal
+        run: rustup toolchain install 1.89 --profile minimal
       - name: Test and build
         env:
           # Link the C runtime statically: no VCRUNTIME140.dll needed or searched for.
           RUSTFLAGS: -C target-feature=+crt-static
         run: |
-          cargo +1.88 test --locked
-          cargo +1.88 build --locked --release
+          cargo +1.89 test --locked
+          cargo +1.89 build --locked --release
       - name: Package Windows executable
         shell: pwsh
         run: |

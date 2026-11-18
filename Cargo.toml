@@ -2,7 +2,7 @@
 name = "go-router"
 version = "0.4.3"
 edition = "2024"
-rust-version = "1.88"
+rust-version = "1.89"
 description = "A lightweight OpenRouter-compatible gateway for OpenCode Go"
 license = "MIT"
 

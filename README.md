@@ -106,7 +106,7 @@ intended for coding agents and monitors traffic; check its
 
 ## Development
 
-Requires Rust 1.88+ and a C compiler (for bundled SQLite).
+Requires Rust 1.89+ and a C compiler (for bundled SQLite).
 
 ```bash
 cargo fmt --all -- --check
