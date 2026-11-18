@@ -52,8 +52,9 @@ Get-NetTCPConnection -State Listen -LocalPort 80,443 -ErrorAction SilentlyContin
 - **Nothing printed:** ports are free. Use the normal command in step 4.
 - **Port 80 is listed** (often IIS or another Windows web service): add `-HttpsOnly`
   in step 4. Go Router will use port 443 only and leave port 80 alone.
-- **Port 443 is listed:** another web server already owns HTTPS. Stop here and decide
-  with the server owner which program should use it.
+- **Port 443 is listed:** IIS (or another web server) already serves HTTPS. If it is
+  IIS, skip step 4 and use [Install in IIS](#install-in-iis-servers-that-already-run-iis)
+  instead. Your existing websites keep working.
 
 ## 4. Install
 
@@ -86,6 +87,40 @@ It ends with `Installed. Admin: https://api.example.com/admin ...`. If it prints
 warning instead, see [Troubleshooting](operations.md#troubleshooting).
 
 The execution-policy flag applies only to that one command; no system policy changes.
+
+## Install in IIS (servers that already run IIS)
+
+Use this instead of step 4 when IIS already serves websites on ports 80 and 443. IIS
+then runs the gateway like any other site: it starts `go-router.exe`, restarts it if it
+stops, and serves HTTPS with a certificate already installed on the server.
+
+You need:
+
+- The **ASP.NET Core Hosting Bundle** (any recent version). Servers that already host
+  .NET websites usually have it. If the install says it is missing, install it from
+  <https://dotnet.microsoft.com/download/dotnet>, run `iisreset`, and retry.
+- A certificate in the server's certificate store that covers your domain, for example
+  a `*.example.com` wildcard. The script finds it automatically.
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\install-iis-windows.ps1 -Domain api.example.com
+```
+
+The script:
+
+1. Checks IIS, the ASP.NET Core Module, and that no other site uses the domain.
+2. Locks the folder permissions and picks the newest valid certificate for the domain.
+3. Downloads `go-router.exe` (checksum verified) and creates `.env` and the admin password.
+4. Creates `C:\go-router\iis\web.config` (the site folder holds only this file, so IIS
+   can never serve `.env` or `data\`).
+5. Creates the **GoRouter** application pool (LocalService account, no idle shutdown, no
+   timed recycling) and the **GoRouter** HTTPS site for the domain only.
+6. Waits until `https://<domain>/healthz` answers.
+
+It ends with `Installed in IIS. Admin: https://api.example.com/admin ...`. Continue with
+step 5. Updates use the same `update-windows.ps1` command; it pauses the site with
+`app_offline.htm` while it replaces the program. When the certificate is renewed in IIS,
+update the binding of the **GoRouter** site like any other site.
 
 ## 5. Sign in and connect OpenCode Go
 
@@ -132,6 +167,7 @@ Never share the admin password or the OpenCode Go key. Send keys privately.
 | Re-apply permissions and least-privilege accounts | `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\secure-windows.ps1` |
 | Status | `Get-ScheduledTask GoRouter; Get-Service GoRouterCaddy` |
 | Logs | `Get-Content .\data\server.log -Tail 50` and `Get-Content .\data\caddy\process.log -Tail 50` |
+| Status and logs (IIS install) | `Get-Website GoRouter` and the newest file in `.\data\logs\` |
 
 More in [Operations](operations.md): backups, monitoring, limits and troubleshooting.
 

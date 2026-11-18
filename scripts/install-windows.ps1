@@ -36,6 +36,7 @@ $ports = if ($HttpsOnly) { @(443) } else { @(80,443) }
 foreach ($port in $ports) {
     if (Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction SilentlyContinue) {
         if ($port -eq 80) { throw 'Port 80 is already in use. Retry with -HttpsOnly to use port 443 only.' }
+        if ($port -eq 443) { throw 'Port 443 is already in use (usually by IIS). Install inside IIS instead: .\scripts\install-iis-windows.ps1 -Domain <domain>' }
         throw "Port $port is already in use. Check the existing web server before proceeding."
     }
 }

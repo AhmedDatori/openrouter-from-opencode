@@ -23,6 +23,17 @@ pub struct Config {
     pub cors_origins: Vec<String>,
     pub subscription_usd: f64,
 }
+/// Listen address. Under IIS (ASP.NET Core Module) the module chooses the port and
+/// passes it in ASPNETCORE_PORT; the gateway then listens on that loopback port.
+pub fn bind_address() -> String {
+    match env::var("ASPNETCORE_PORT")
+        .ok()
+        .and_then(|p| p.trim().parse::<u16>().ok())
+    {
+        Some(port) if port != 0 => format!("127.0.0.1:{port}"),
+        _ => env::var("BIND").unwrap_or_else(|_| "127.0.0.1:8080".into()),
+    }
+}
 impl Config {
     pub fn from_env() -> Result<Self> {
         fn val(k: &str, fallback: &str) -> String {
@@ -34,7 +45,7 @@ impl Config {
                 .map_err(|_| anyhow::anyhow!("Invalid {k}"))
         }
         let mut c = Self {
-            bind: val("BIND", "127.0.0.1:8080"),
+            bind: bind_address(),
             database: val("DATABASE_PATH", "data/go-router.db").into(),
             upstream_base: val("GO_BASE_URL", "https://opencode.ai/inference/go")
                 .trim_end_matches('/')

@@ -43,6 +43,11 @@ if ($AclOnly) { return }
 # --- 2. Least-privilege accounts ---------------------------------------------------
 $task = Get-ScheduledTask -TaskName GoRouter -ErrorAction SilentlyContinue
 $service = Get-Service -Name GoRouterCaddy -ErrorAction SilentlyContinue
+if (!$task -and !$service -and (Test-Path -LiteralPath (Join-Path $root 'iis\web.config'))) {
+    # IIS installation: the GoRouter application pool already runs as LocalService.
+    Write-Host 'IIS installation: the GoRouter application pool runs as LocalService. Nothing else to change.'
+    return
+}
 if (!$task -or !$service) { throw 'GoRouter task or GoRouterCaddy service not found. Run install-windows.ps1 first.' }
 $envText = [IO.File]::ReadAllText((Join-Path $root '.env'))
 if ($envText -notmatch '(?m)^PUBLIC_URL=(https://[^\s/]+)\s*$') { throw 'PUBLIC_URL in .env must be the https:// address of this server.' }

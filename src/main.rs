@@ -23,7 +23,7 @@ async fn main() -> Result<()> {
         return Ok(());
     }
     if std::env::args().any(|a| a == "--healthcheck") {
-        let bind = std::env::var("BIND").unwrap_or_else(|_| "127.0.0.1:8080".into());
+        let bind = go_router::config::bind_address();
         let addr: std::net::SocketAddr = bind.parse()?;
         let host = if addr.is_ipv6() { "[::1]" } else { "127.0.0.1" };
         let url = format!("http://{host}:{}/healthz", addr.port());

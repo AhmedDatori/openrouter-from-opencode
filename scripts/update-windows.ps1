@@ -1,6 +1,6 @@
 #Requires -RunAsAdministrator
 # Download a gateway release and replace go-router.exe. Keeps .env, the database,
-# the admin password and Caddy. Usage:
+# the admin password and Caddy or IIS settings. Usage:
 #   powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\update-windows.ps1            # latest release
 #   powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\update-windows.ps1 -Version v0.4.0
 param([string]$Version = 'latest')
@@ -29,18 +29,28 @@ try {
     $task = Get-ScheduledTask -TaskName GoRouter -ErrorAction SilentlyContinue
     $restart = $task -and $task.State -eq 'Running'
     if ($task) { Stop-ScheduledTask -TaskName GoRouter }
-    $destination = Join-Path $root 'go-router.exe'
-    for ($i = 0; $i -lt 30; $i++) {
-        $running = Get-CimInstance Win32_Process -Filter "Name='go-router.exe'" | Where-Object { $_.ExecutablePath -eq $destination }
-        if (!$running) { break }
-        Start-Sleep -Milliseconds 200
+    # IIS installation: app_offline.htm makes IIS stop go-router.exe until the file is removed.
+    $appOffline = Join-Path $root 'iis\app_offline.htm'
+    if (Test-Path -LiteralPath (Join-Path $root 'iis\web.config')) {
+        [IO.File]::WriteAllText($appOffline, '<!doctype html><title>Updating</title><p>Go Router is being updated. Retry in a minute.</p>')
     }
-    if ($running) { throw 'The gateway is still running. Stop it, then retry.' }
-    New-Item -ItemType Directory -Path (Join-Path $root 'data') -Force | Out-Null
-    if (Test-Path -LiteralPath $destination) {
-        Copy-Item -LiteralPath $destination -Destination (Join-Path $root 'data/go-router-before-update.exe') -Force
+    try {
+        $destination = Join-Path $root 'go-router.exe'
+        for ($i = 0; $i -lt 200; $i++) {
+            $running = Get-CimInstance Win32_Process -Filter "Name='go-router.exe'" | Where-Object { $_.ExecutablePath -eq $destination }
+            if (!$running) { break }
+            Start-Sleep -Milliseconds 200
+        }
+        if ($running) { throw 'The gateway is still running. Stop it, then retry.' }
+        New-Item -ItemType Directory -Path (Join-Path $root 'data') -Force | Out-Null
+        if (Test-Path -LiteralPath $destination) {
+            Copy-Item -LiteralPath $destination -Destination (Join-Path $root 'data/go-router-before-update.exe') -Force
+        }
+        Copy-Item -LiteralPath $newBinary -Destination $destination -Force
+    } finally {
+        # IIS starts the gateway again on the next request.
+        Remove-Item -LiteralPath $appOffline -Force -ErrorAction SilentlyContinue
     }
-    Copy-Item -LiteralPath $newBinary -Destination $destination -Force
     if ($restart) { Start-ScheduledTask -TaskName GoRouter }
     Write-Host "Installed $reported. Configuration, database and admin password were kept."
 } finally {

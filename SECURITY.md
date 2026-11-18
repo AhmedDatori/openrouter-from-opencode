@@ -32,6 +32,8 @@ request logs and key hashes. They are excluded from Git and Docker builds. Delet
   as the low-privilege **LocalService** account, which can read the program and write
   only to `data\`; the admin password file is readable by Administrators only.
   `scripts\secure-windows.ps1` applies and verifies all of this.
+  IIS installs run the gateway in a dedicated application pool as LocalService; the
+  IIS site folder contains only `web.config`.
 - **Linux:** files are owned by root; the gateway runs as the `go-router` user in a
   strict systemd sandbox (no capabilities, read-only system, filtered system calls)
   and can write only to `data/`. `.env` is `root:go-router 640`.

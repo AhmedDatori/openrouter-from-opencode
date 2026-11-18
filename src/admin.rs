@@ -54,7 +54,12 @@ pub async fn security_headers(req: Request, next: Next) -> Response {
 /// Rate-limit bucket for a client address. IPv6 clients usually control a whole /64,
 /// so they are grouped by it; anything unparsable shares one bucket.
 fn client_bucket(addr: &str) -> String {
-    match addr.parse::<std::net::IpAddr>() {
+    // Caddy sends "203.0.113.5"; IIS sends "203.0.113.5:51234" or "[2001:db8::1]:51234".
+    let ip = addr
+        .parse::<std::net::SocketAddr>()
+        .map(|s| s.ip())
+        .or_else(|_| addr.parse::<std::net::IpAddr>());
+    match ip {
         Ok(std::net::IpAddr::V6(v6)) => {
             let s = v6.segments();
             format!("{:x}:{:x}:{:x}:{:x}::/64", s[0], s[1], s[2], s[3])
@@ -497,4 +502,20 @@ pub async fn reset_metrics(State(app): State<App>, headers: HeaderMap) -> ApiRes
         .await
         .map_err(ApiError::internal)?;
     Ok(Json(json!({"ok":true})))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::client_bucket;
+    #[test]
+    fn client_bucket_accepts_proxy_formats() {
+        assert_eq!(client_bucket("203.0.113.5"), "203.0.113.5");
+        assert_eq!(client_bucket("203.0.113.5:51234"), "203.0.113.5");
+        assert_eq!(
+            client_bucket("[2001:db8:1:2:3::9]:443"),
+            "2001:db8:1:2::/64"
+        );
+        assert_eq!(client_bucket("2001:db8:1:2:3::9"), "2001:db8:1:2::/64");
+        assert_eq!(client_bucket("junk"), "unparsed");
+    }
 }
