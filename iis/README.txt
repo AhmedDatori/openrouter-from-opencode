@@ -8,7 +8,7 @@ Configured address: @ORIGIN@
 ONE-TIME SERVER REQUIREMENT
 In IIS Manager > server > Modules, check for AspNetCoreModuleV2.
 If missing, install Microsoft's ASP.NET Core Hosting Bundle:
-https://dotnet.microsoft.com/permalink/dotnetcore-current-windows-runtime-bundle-installer
+https://aka.ms/dotnetcore-10-0-windowshosting
 Install it AFTER IIS. Restart the server if requested; on a shared server,
 arrange the IIS/service restart with its administrator. A .NET Framework
 installation alone does not provide this module.

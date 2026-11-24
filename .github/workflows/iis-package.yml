@@ -33,7 +33,11 @@ jobs:
       - name: Enable IIS and install Microsoft hosting module
         run: |
           Install-WindowsFeature Web-Server,Web-Mgmt-Tools -IncludeManagementTools
-          Invoke-WebRequest -UseBasicParsing 'https://dotnet.microsoft.com/permalink/dotnetcore-current-windows-runtime-bundle-installer' -OutFile "$env:RUNNER_TEMP\hosting.exe"
+          $metadata = Invoke-RestMethod 'https://builds.dotnet.microsoft.com/dotnet/release-metadata/10.0/releases.json'
+          $installer = $metadata.releases[0].'aspnetcore-runtime'.files | Where-Object name -eq dotnet-hosting-win.exe | Select-Object -First 1
+          if ($installer.url -notmatch '^https://builds\.dotnet\.microsoft\.com/') { throw 'Unexpected installer source' }
+          Invoke-WebRequest -UseBasicParsing $installer.url -OutFile "$env:RUNNER_TEMP\hosting.exe"
+          if ((Get-FileHash "$env:RUNNER_TEMP\hosting.exe" -Algorithm SHA512).Hash -ne $installer.hash) { throw 'Microsoft installer checksum mismatch' }
           $signature = Get-AuthenticodeSignature "$env:RUNNER_TEMP\hosting.exe"
           if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'O=Microsoft Corporation') { throw 'Invalid Microsoft installer signature' }
           $result = Start-Process "$env:RUNNER_TEMP\hosting.exe" -ArgumentList '/install','/quiet','/norestart','OPT_NO_RUNTIME=1','OPT_NO_SHAREDFX=1','OPT_NO_X86=1' -Wait -PassThru
