@@ -31,8 +31,14 @@ jobs:
           python scripts/package-iis.py --binary target/release/go-router.exe --output package/go-router-iis-windows-x64.zip --origin https://localhost:8443
           if ($LASTEXITCODE) { throw 'Packaging failed' }
           Expand-Archive package/go-router-iis-windows-x64.zip -DestinationPath 'C:\Go Router IIS Test'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: iis-package-build
+          path: package/go-router-iis-windows-x64.zip*
+          retention-days: 3
       - name: Enable IIS and install Microsoft hosting module
         run: |
+          $ProgressPreference = 'SilentlyContinue'
           Install-WindowsFeature Web-Server,Web-Mgmt-Tools -IncludeManagementTools
           $metadata = Invoke-RestMethod 'https://builds.dotnet.microsoft.com/dotnet/release-metadata/10.0/releases.json'
           $installer = $metadata.releases[0].'aspnetcore-runtime'.files | Where-Object name -eq dotnet-hosting-win.exe | Select-Object -First 1

@@ -139,7 +139,11 @@ class IisPackage(unittest.TestCase):
             self.assertEqual(response.status, 200)
             self.assertIn('text/event-stream', response.headers['Content-Type'])
             self.assertIsNone(response.headers.get('Content-Encoding'))
-            first = response.readline()
+            # The gateway can send SSE comments before the first answer event.
+            while True:
+                first = response.readline()
+                if first.startswith(b'data: ') or not first:
+                    break
             first_at = time.monotonic() - start
             rest = response.read()
             total = time.monotonic() - start
