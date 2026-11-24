@@ -95,7 +95,8 @@ class IisPackage(unittest.TestCase):
     def test_01_startup_dashboard_and_catalog(self):
         for path in ['/healthz', '/readyz', '/admin', '/admin/app.js', '/admin/style.css', '/api/v1/models']:
             self.assertEqual(self.call('GET', path)[0], 200, path)
-        self.assertEqual(self.call('GET', '/healthz')[2]['version'], '0.4.3')
+        version = (ROOT / 'PACKAGE-INFO.txt').read_text().splitlines()[0].removeprefix('Go Router ')
+        self.assertEqual(self.call('GET', '/healthz')[2]['version'], version)
         self.assertEqual(len(self.call('GET', '/api/v1/models')[2]['data']), 30)
 
     def test_02_credentials_and_database_are_not_served(self):

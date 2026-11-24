@@ -9,6 +9,7 @@ jobs:
     timeout-minutes: 20
     env:
       IIS_PACKAGE_ROOT: 'C:\Go Router IIS Test\go-router'
+      RUSTFLAGS: -C target-feature=+crt-static
     defaults:
       run:
         shell: powershell
@@ -16,18 +17,18 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
-      - name: Download and verify released Windows executable
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Install Rust
+        run: rustup toolchain install 1.89 --profile minimal
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+      - name: Test and build Windows executable with static C runtime
         run: |
-          gh release download v0.4.3 --pattern go-router-windows-x86_64.zip --dir release
-          if ($LASTEXITCODE) { throw 'Release download failed' }
-          $hash = (Get-FileHash release/go-router-windows-x86_64.zip -Algorithm SHA256).Hash.ToLowerInvariant()
-          if ($hash -ne '7a1cda028e4edd507c492f280f750dad0785e48fa8c497ab34c53681e398ecdb') { throw 'Release checksum mismatch' }
-          Expand-Archive release/go-router-windows-x86_64.zip -DestinationPath release/extracted
+          cargo +1.89 test --locked
+          if ($LASTEXITCODE) { throw 'Windows Rust tests failed' }
+          cargo +1.89 build --locked --release
+          if ($LASTEXITCODE) { throw 'Windows build failed' }
       - name: Build private IIS ZIP and extract it like the recipient
         run: |
-          python scripts/package-iis.py --binary release/extracted/go-router/go-router.exe --output package/go-router-iis-windows-x64.zip --origin https://localhost:8443
+          python scripts/package-iis.py --binary target/release/go-router.exe --output package/go-router-iis-windows-x64.zip --origin https://localhost:8443
           if ($LASTEXITCODE) { throw 'Packaging failed' }
           Expand-Archive package/go-router-iis-windows-x64.zip -DestinationPath 'C:\Go Router IIS Test'
       - name: Enable IIS and install Microsoft hosting module

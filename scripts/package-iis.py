@@ -48,6 +48,8 @@ def main():
     env = re.sub(r'^COOKIE_SECURE=.*$', 'COOKIE_SECURE=true', env, flags=re.M)
     readme = (ROOT / 'iis/README.txt').read_text().replace('@ORIGIN@', origin).replace('@HOST@', url.hostname)
     checksum = hashlib.sha256(binary).hexdigest()
+    source_ref = subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=ROOT, check=True,
+                                capture_output=True, text=True).stdout.strip()
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(args.output, 'x', compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
         def add(name, content):
@@ -62,7 +64,7 @@ def main():
         add('data/logs/', b'')
         add('PACKAGE-INFO.txt', f'Go Router {version}\r\nWindows x64; static C runtime; bundled SQLite.\r\n'
             f'Executable SHA256: {checksum}\r\n'
-            f'Source: https://github.com/AhmedDatori/openrouter-from-opencode/tree/v{version}\r\n'
+            f'Source: https://github.com/AhmedDatori/openrouter-from-opencode/tree/{source_ref}\r\n'
             'Includes a new random admin password and no upstream API keys or existing database.\r\n')
     digest = hashlib.sha256(args.output.read_bytes()).hexdigest()
     args.output.with_suffix(args.output.suffix + '.sha256').write_text(
