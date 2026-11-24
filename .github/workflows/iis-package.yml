@@ -1,0 +1,57 @@
+name: Test IIS package
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  iis:
+    runs-on: windows-2025
+    timeout-minutes: 20
+    env:
+      IIS_PACKAGE_ROOT: 'C:\Go Router IIS Test\go-router'
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Download and verify released Windows executable
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download v0.4.3 --pattern go-router-windows-x86_64.zip --dir release
+          if ($LASTEXITCODE) { throw 'Release download failed' }
+          $hash = (Get-FileHash release/go-router-windows-x86_64.zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($hash -ne '7a1cda028e4edd507c492f280f750dad0785e48fa8c497ab34c53681e398ecdb') { throw 'Release checksum mismatch' }
+          Expand-Archive release/go-router-windows-x86_64.zip -DestinationPath release/extracted
+      - name: Build private IIS ZIP and extract it like the recipient
+        run: |
+          python scripts/package-iis.py --binary release/extracted/go-router/go-router.exe --output package/go-router-iis-windows-x64.zip --origin https://localhost:8443
+          if ($LASTEXITCODE) { throw 'Packaging failed' }
+          Expand-Archive package/go-router-iis-windows-x64.zip -DestinationPath 'C:\Go Router IIS Test'
+      - name: Enable IIS and install Microsoft hosting module
+        run: |
+          Install-WindowsFeature Web-Server,Web-Mgmt-Tools -IncludeManagementTools
+          Invoke-WebRequest -UseBasicParsing 'https://dotnet.microsoft.com/permalink/dotnetcore-current-windows-runtime-bundle-installer' -OutFile "$env:RUNNER_TEMP\hosting.exe"
+          $signature = Get-AuthenticodeSignature "$env:RUNNER_TEMP\hosting.exe"
+          if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'O=Microsoft Corporation') { throw 'Invalid Microsoft installer signature' }
+          $result = Start-Process "$env:RUNNER_TEMP\hosting.exe" -ArgumentList '/install','/quiet','/norestart','OPT_NO_RUNTIME=1','OPT_NO_SHAREDFX=1','OPT_NO_X86=1' -Wait -PassThru
+          if ($result.ExitCode -notin @(0,3010)) { throw "Hosting bundle exited $($result.ExitCode)" }
+          Restart-Service W3SVC -Force
+      - name: Create IIS site with documented pool and permissions
+        run: tests/iis-server.ps1
+      - name: Test the ZIP through HTTPS and IIS
+        run: |
+          python tests/iis_smoke.py
+          if ($LASTEXITCODE) { throw 'IIS integration checks failed' }
+      - name: Diagnostics on failure
+        if: failure()
+        run: |
+          Get-ChildItem "$env:IIS_PACKAGE_ROOT\data\logs" -Filter '*.log' -ErrorAction SilentlyContinue | ForEach-Object { Get-Content $_.FullName -Tail 35 }
+          Get-WinEvent -FilterHashtable @{LogName='Application';StartTime=(Get-Date).AddMinutes(-20)} -ErrorAction SilentlyContinue | Where-Object ProviderName -Match 'IIS|ASP' | Select-Object -First 8 | Format-List TimeCreated,ProviderName,Message
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: iis-package-tested
+          path: package/go-router-iis-windows-x64.zip*
+          retention-days: 3
